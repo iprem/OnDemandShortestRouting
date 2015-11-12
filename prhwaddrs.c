@@ -39,5 +39,4 @@ void pr_hw_addrs()
 	}
 
 	free_hwa_info(hwahead);
-	exit(0);
 }
