@@ -12,6 +12,9 @@ client : client.c
 unixdg : 
 	$(CC) $(CFLAGS) dg unixdgcli01.c  $(LIBS)
 
+odrt: odr_test.c
+	$(CC) $(CFLAGS) odrt odr_test.c get_hw_addrs.c $(LIBS)
+
 odr : odr.c
 	$(CC) $(CFLAGS) odr odr.c $(LIBS)
 
