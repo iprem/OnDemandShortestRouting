@@ -46,10 +46,10 @@ int main(int argc, char **argv){
 	
 	findServerIP(server_ip);
 	server_ip[strlen(server_ip)] = 0;
-	printf("Server IP: %s %d\n",server_ip,strlen(server_ip));
+	//printf("Server IP: %s %d\n",server_ip,strlen(server_ip));
 	if(server_ip == NULL)	err_quit("Couldn't determine server IP\n");
 	findHostName(server_ip, server_host);
-	
+	system("clear");
 	printf("\n****************Starting SERVER*******************\n\n");
 	printf("Server IP Address at node %s: %s\n", server_host, server_ip);
 
@@ -61,8 +61,10 @@ int main(int argc, char **argv){
 		//FindHostName(client_ip, client_host);
 		ticks = time(NULL);
 		snprintf(buff, sizeof(buff), "%.24s\r\n",ctime(&ticks));
+		printf("Current time: %s\n",buff);
 		printf("\nServer at node %s responding to request from %s\n", server_host, client_host);
 		//msg_send(sockfd, client_ip, port, buff, 0);
+		break;
 		
 	}
 	
@@ -100,12 +102,13 @@ void findServerIP(char * server_ip){
 
 	for (hwahead = hwa = Get_hw_addrs(); hwa != NULL; hwa = hwa->hwa_next) {
 		
-		printf("%s :%s", hwa->if_name, ((hwa->ip_alias) == IP_ALIAS) ? " (alias)\n" : "\n");
+		//printf("%s :%s", hwa->if_name, ((hwa->ip_alias) == IP_ALIAS) ? " (alias)\n" : "\n");
 		
-		if(strcmp("eth0",hwa->if_name) == 0)	printf("YES!!\n");
+		if(strcmp("eth0",hwa->if_name) == 0)
 			if ( (sa = hwa->ip_addr) != NULL){
 				strcpy(server_ip,Sock_ntop_host(sa, sizeof(*sa)));
-				printf("IP: %s\n",Sock_ntop_host(sa, sizeof(*sa)), server_ip);
+				//printf("IP: %s\n",Sock_ntop_host(sa, sizeof(*sa)), server_ip);
+				break;
 			}
 	}
 
