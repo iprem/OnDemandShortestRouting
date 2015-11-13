@@ -42,6 +42,8 @@ void findOwnIP(char * own_ip){
 				strcpy(own_ip,Sock_ntop_host(sa, sizeof(*sa)));
 				break;
 			}
+			else
+				printf("Error: No IP address found for eth0\n");
 	}
 
 	free_hwa_info(hwahead);
