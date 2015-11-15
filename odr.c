@@ -7,6 +7,82 @@
 void flood_rreqs(int fd);
 void write_rreq(int fd, char *haddr, int index);
 
+/**********************************************/
+#define RT struct routing_table
+#define TRUE 	1
+#define FALSE	0
+#define ERROR	2
+
+
+struct routing_table{
+
+	in_addr_t ip;				//IP address of vm
+	char next_hop[20];			//Ethernet address  of next hop
+	int out_interface_index;	//Out going interface index
+	int num_hops_destn;			//Number of hops to detination
+	struct timespec timestamp;	//Time stamp
+
+} vm[10];
+
+/* Check if routing table is stale */
+int isRoutingTableStale(RT *vm, struct timespec stale){
+	
+	struct timespec curtime;
+		
+	if ( clock_gettime(CLOCK_REALTIME, curtime) == -1 ){
+		printf("Error: Unable to get current time");
+		return ERROR;
+	}
+
+	/*Assuming staleness is only in seconds*/
+	if( curtime.tv_sec > (vm->timestamp.tv_sec + stale.tv_sec) )
+		return TRUE;
+	
+	else		
+		return FALSE;
+	
+}
+
+/*Set timestamp for a routing table */
+int setTimeStamp(RT *vm){
+	
+	if(clock_settime(CLOCK_REALTIME, vm->timestamp) == -1){
+		printf("Failed to set timestamp for destination IP: %s", vm->ip);
+		return FALSE;
+	}
+
+	return TRUE;
+
+}
+
+/*Checks for all conditions if flooding is required */
+int isFloodingRequired(RT *vm, struct timespec stale, struct rreq *req){
+	
+	char own_ip[16];
+	findOwnIP(own_ip);
+	
+    // Got to test this first condition
+	if ( strcmp(own_ip, (req->dest_addr)) == 0 )
+		return FALSE;
+
+	if ( isRoutingTableStale(vm, stale) == TRUE )
+		return TRUE;
+
+	if ( req-> rrep_flag == 1 )
+		return TRUE;
+
+	if ( (strcmp(ip, req->dest_addr) != 0) )
+		return TRUE;
+	else 
+		if ( (vm->next_hop == NULL) && (vm->num_hop_destn > -1) )
+			return TRUE;
+		else 
+			return FALSE;
+
+}
+/*****************************************************************/
+
+
 struct rreq
 {
   
