@@ -1,7 +1,7 @@
 #include <errno.h>		/* error numbers */
 #include <sys/ioctl.h>          /* ioctls */
 #include <net/if.h>             /* generic interface structures */
-
+#include "unp.h"
 #include "hw_addrs.h"
 
 

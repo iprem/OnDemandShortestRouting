@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -I /users/cse533/Stevens/unpv13e/lib/ -g  -D_REENTRANT -Wall -L /users/cse533/Stevens/unpv13e/ -o 
-LIBS = -lunp -lpthread
+LIBS = -lunp -lpthread -lrt
 CLEANFILES = client server odr odr_test  *~ *.o ud_* 
 
 
@@ -20,8 +20,8 @@ unixdg :
 odrt: odr_test.c get_hw_addrs.c
 	$(CC) $(CFLAGS) odrt odr_test.c get_hw_addrs.c $(LIBS)
 
-odr : odr.c get_hw_addrs.c
-	$(CC) $(CFLAGS) odr odr.c  get_hw_addrs.c $(LIBS)
+odr : odr.c get_hw_addrs.c sockaddr_util.c
+	$(CC) $(CFLAGS) odr odr.c  get_hw_addrs.c sockaddr_util.c $(LIBS)
 
 clean:
 	rm -f $(CLEANFILES)

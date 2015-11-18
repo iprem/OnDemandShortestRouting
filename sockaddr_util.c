@@ -2,7 +2,8 @@
 #include <sys/socket.h>
 #include <netpacket/packet.h>
 #include <net/ethernet.h>
-
+#include <sys/un.h>
+#include <stdio.h>
 
 void init_sockaddr_un(struct sockaddr_un *addr, char * path )
 { 
@@ -25,9 +26,9 @@ void print_sockaddr_ll(struct sockaddr_ll *addr, int recv)
 
   printf("Interface Num: %d \n",  addr->sll_ifindex);
   if(recv)
-    printf("Interface Source Addr: ",  addr->sll_addr);
+    printf("Interface Source Addr:  ");
   else
-    printf("Interface Dest Addr: ",  addr->sll_addr);
+    printf("Interface Dest Addr: ");
     
   for(i = 0; i < 6; i++)
     {
