@@ -29,20 +29,21 @@ void findOwnIP(char * own_ip){
 	
 	struct hwa_info	*hwa, *hwahead;
 	struct sockaddr	*sa;
-
+	int eth_zero = 0;
 	for (hwahead = hwa = Get_hw_addrs(); hwa != NULL; hwa = hwa->hwa_next) {
 		
-		if(strcmp("eth0",hwa->if_name) == 0)
+		if(strcmp("eth0", hwa->if_name) == 0)
 		  {
 			if ( (sa = hwa->ip_addr) != NULL)
 			  {
 			    strcpy(own_ip,Sock_ntop_host(sa, sizeof(*sa)));
+			    eth_zero = 1;
 			    break;
 			  }
 		  }
-		else
-		  printf("Error: No IP address found for eth0\n");
 	}
+	if (!eth_zero)
+	  printf("Error: No IP address found for eth0\n");
 
 	free_hwa_info(hwahead);
 

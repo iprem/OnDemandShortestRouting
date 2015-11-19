@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 {
 
   int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0;
-  socklen_t len = 0;
+  socklen_t len = sizeof(struct sockaddr_ll);
   //char *ds_odr_path = "/home/mliuzzi/odr_path";
   //char *ds_odr_path = "/users/mliuzzi/cse533/un_odr_path";
   char *ds_odr_path = "/home/mliuzzi/un_odr_path";
@@ -137,10 +137,11 @@ int main(int argc, char **argv)
   struct sockaddr_ll pk_rreq;
   struct odr_message* recv_odr_msg;
   struct odr_message odr_msg_rrep;
-
   char recv_buf[ETH_FRAME_LEN];
   char send_buf[ETH_FRAME_LEN];
+  char own_ip[16];
   char *data = recv_buf + 14;
+  
 
   /* Initialize structures to zero */
   memset(&odr_msg_rreq, 0, sizeof(struct odr_message));
@@ -174,22 +175,30 @@ int main(int argc, char **argv)
   //force send rreq
   //other odr will just wait to receive 
   //arg 1 is flag to do it and arg2 is ip
-  if(strtol(argv[1], 0, 10) == 1)
+  if (argc > 1)
     {
-      write_source_rreq(send_buf, &pk_rreq, argv[2], 0);
-      flood_rreqs(pk_sockfd, send_buf, &pk_rreq );
+      printf("argc = 3 \n");
+      if(strtol(argv[1], 0, 10) == 1)
+	{
+	  write_source_rreq(send_buf, &pk_rreq, argv[2], 0);
+	  printf("Return from write_source_rreq. \n");
+	  flood_rreqs(pk_sockfd, send_buf, &pk_rreq );
+	}
     }
 
   recvfrom(pk_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *) &pk_rreq, &len);
+  printf("Return from receivefrom prior to loop. \n" );
   while(1)
     {
       recv_odr_msg = data;
       if (recv_odr_msg->type == RREQ)
 	{
+	  printf("Received RREQ. \n" );
 	  memset(send_buf, 0, ETH_FRAME_LEN);
 	  memcpy(send_buf, recv_buf, ETH_FRAME_LEN);
 	  if(dont_have_rreq(r_paths, &(recv_odr_msg->contents.odr_rreq)))
 	    {
+	      printf("Did not have rreq \n" );
 	      add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
 	      memset(&pk_rreq, 0, sizeof(struct sockaddr_ll));
 	      write_forward_rreq(send_buf, &pk_rreq, 0 );
@@ -197,6 +206,7 @@ int main(int argc, char **argv)
 	    }
 	  else if(reached_destination(&(recv_odr_msg->contents.odr_rreq)))
 	    {
+	      printf("Reached Destination \n" );
 	      memset(send_buf, 0, ETH_FRAME_LEN);
 	      write_source_rrep(&odr_msg_rrep, recv_buf, send_buf, &pk_rreq);
 	      Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
@@ -205,6 +215,13 @@ int main(int argc, char **argv)
 	}
       if(recv_odr_msg->type == RREP)
  	{
+	  printf("Received RREP \n" );
+	  findOwnIP(own_ip);
+	  if(!strcmp(recv_odr_msg->contents.odr_rrep.src_addr, own_ip))
+	    {
+	      printf("Received RREP at src \n");
+	      break;
+	    }
 	  update_route_table_rrep(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
 	  write_forward_rrep(send_buf, &pk_rreq, r_paths);
 	}
@@ -397,6 +414,8 @@ void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq)
   int valid_addr =0, i = 0;
   char *eth0 = "eth0";
 
+  printf("In flood rreqs. \n");
+
   hdr = (struct ethhdr *) buffer;
 
   for (hwahead = hwa = Get_hw_addrs(); hwa != NULL; hwa = hwa->hwa_next)
@@ -411,8 +430,10 @@ void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq)
       do {
 	if (hwa->if_haddr[i] != '\0') 
 	  {
-	    if(strcmp(hwa->if_name, eth0))
+	    printf("Name: %s", hwa->if_name);
+	    if(!strcmp(hwa->if_name, eth0))
 	      {
+		printf("Found address eth0 \n.");
 		valid_addr = 1;
 		break;
 	      }
@@ -427,6 +448,7 @@ void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq)
 	  sockaddr_rreq->sll_ifindex = hwa->if_index;
 	  memcpy(hdr->h_source, hwa->if_haddr, ETH_ALEN);
 	  Sendto(fd, buffer, ETH_FRAME_LEN, 0, (SA *) &sockaddr_rreq, sizeof(struct sockaddr_ll));
+	  printf("Flooded rreq \n");
 	}
     }
 }
