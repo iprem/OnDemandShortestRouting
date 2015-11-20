@@ -124,6 +124,7 @@ void write_forward_rrep(char * send_buf, struct sockaddr_ll * pk_rreq, struct rr
 void write_forward_rreq(char * buffer, struct sockaddr_ll* sockaddr_rreq, int rrep_sent);
 void update_route_table_rrep(RT* vm, struct sockaddr_ll * sock_rrep,  struct rrep* rrep);
 int setTimeStamp(RT *vm);
+void print_eth_addr(unsigned char *addr);
 
 int main(int argc, char **argv)
 {
@@ -148,6 +149,7 @@ int main(int argc, char **argv)
   memset(vm, 0, sizeof(struct routing_table) * 10);
   memset(recv_buf, 0, ETH_FRAME_LEN);
   memset(send_buf, 0, ETH_FRAME_LEN);
+  memset(&odr_msg_rrep, 0, sizeof(struct odr_message));
   init_sockaddr_un(&ds_odr, ds_odr_path);
   init_rpaths(r_paths);
 
@@ -170,6 +172,7 @@ int main(int argc, char **argv)
   */
 
   pk_sockfd = Socket(AF_PACKET, SOCK_RAW, htons(PROT_MAGIC));
+  //pk_sockfd = 1;
   
   //debug
   //force send rreq
@@ -177,9 +180,10 @@ int main(int argc, char **argv)
   //arg 1 is flag to do it and arg2 is ip
   if (argc > 1)
     {
-      printf("argc = 3 \n");
+      printf("argc: %d \n", argc);
       if(strtol(argv[1], 0, 10) == 1)
 	{
+	  printf("argv[1]: %s", argv[1]);
 	  write_source_rreq(send_buf, &pk_rreq, argv[2], 0);
 	  printf("Return from write_source_rreq. \n");
 	  flood_rreqs(pk_sockfd, send_buf, &pk_rreq );
@@ -194,8 +198,19 @@ int main(int argc, char **argv)
       if (recv_odr_msg->type == RREQ)
 	{
 	  printf("Received RREQ. \n" );
+
+	  printf("Eth addr in pk_rreq: ");
+	  print_eth_addr(pk_rreq.sll_addr);
+	  printf("Eth addr in ethhdr: ");
+	  struct ethhdr *temp;
+	  temp = recv_buf;
+	  print_eth_addr(temp->h_source);
+	  
+	  
 	  memset(send_buf, 0, ETH_FRAME_LEN);
 	  memcpy(send_buf, recv_buf, ETH_FRAME_LEN);
+	  //not working right now
+	  //xx
 	  if(dont_have_rreq(r_paths, &(recv_odr_msg->contents.odr_rreq)))
 	    {
 	      printf("Did not have rreq \n" );
@@ -204,11 +219,25 @@ int main(int argc, char **argv)
 	      write_forward_rreq(send_buf, &pk_rreq, 0 );
 	      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 	    }
-	  else if(reached_destination(&(recv_odr_msg->contents.odr_rreq)))
+	  /* Actually needs to be different logic 
+	     you can not have an rreq and still be the destination */
+	  if(reached_destination(&(recv_odr_msg->contents.odr_rreq)))
 	    {
 	      printf("Reached Destination \n" );
+	      struct odr_message *test;
+	      test = recv_buf + 14;
+	      printf("Before write_source rep: %s \n" ,test->contents.odr_rreq.src_addr);
 	      memset(send_buf, 0, ETH_FRAME_LEN);
 	      write_source_rrep(&odr_msg_rrep, recv_buf, send_buf, &pk_rreq);
+
+	      printf("After write_source rep: %s \n" ,test->contents.odr_rreq.src_addr);
+	      printf("Eth addr in pk_rreq: ");
+	      print_eth_addr(pk_rreq.sll_addr);
+	      printf("Eth addr in ethhdr: ");
+	      struct ethhdr *temp;
+	      temp = send_buf;	      
+	      print_eth_addr(temp->h_dest);
+	      printf("src addr before sendto: %s \n", test->contents.odr_rrep.src_addr);
 	      Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
 	      printf("Sent rrep! \n");
 	    }
@@ -217,13 +246,18 @@ int main(int argc, char **argv)
  	{
 	  printf("Received RREP \n" );
 	  findOwnIP(own_ip);
+	  printf("Found IP \n");
+	  printf("Own IP: %s \n", own_ip);
+	  printf("rrep src addr: %s \n", recv_odr_msg->contents.odr_rrep.src_addr);
 	  if(!strcmp(recv_odr_msg->contents.odr_rrep.src_addr, own_ip))
 	    {
 	      printf("Received RREP at src \n");
 	      break;
 	    }
 	  update_route_table_rrep(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
+	  printf("After route table. \n");
 	  write_forward_rrep(send_buf, &pk_rreq, r_paths);
+	  printf("After route table. \n");
 	}
       
       memset(recv_buf, 0, ETH_FRAME_LEN);
@@ -310,7 +344,7 @@ dont_have_rreq(struct rreq_reverse_path * rpath, struct rreq* rreq)
   int i;
   for(i = 0; i < REVERSE_PATH_SIZE; i++)
     {
-      if(!strcmp(rreq->src_addr, rpath->src_addr) && (rreq->b_id == rpath->b_id))
+      if((!strcmp(rreq->src_addr, rpath->src_addr)) && (rreq->b_id == rpath->b_id))
 	return TRUE;
 
     }
@@ -431,9 +465,8 @@ void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq)
 	if (hwa->if_haddr[i] != '\0') 
 	  {
 	    printf("Name: %s", hwa->if_name);
-	    if(!strcmp(hwa->if_name, eth0))
+	    if(strcmp(hwa->if_name, eth0))
 	      {
-		printf("Found address eth0 \n.");
 		valid_addr = 1;
 		break;
 	      }
@@ -447,7 +480,7 @@ void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq)
 	{
 	  sockaddr_rreq->sll_ifindex = hwa->if_index;
 	  memcpy(hdr->h_source, hwa->if_haddr, ETH_ALEN);
-	  Sendto(fd, buffer, ETH_FRAME_LEN, 0, (SA *) &sockaddr_rreq, sizeof(struct sockaddr_ll));
+	  Sendto(fd, buffer, ETH_FRAME_LEN, 0,(SA *) sockaddr_rreq, sizeof(struct sockaddr_ll));
 	  printf("Flooded rreq \n");
 	}
     }
@@ -457,11 +490,26 @@ int reached_destination(struct rreq * rreq)
 {
   char own_ip[16];
   findOwnIP(own_ip);
+  printf("reached destination addr: %s \n", rreq->dest_addr);
+  printf("reached destination addr src addr: %s \n", rreq->src_addr);
+    
   if (!strcmp(rreq->dest_addr, own_ip))
     return TRUE;
   else
     return FALSE;
 
+
+}
+
+void print_eth_addr(unsigned char *addr)
+{
+  int i;
+  for(i = 0; i < 6; i++)
+    {
+      printf("%.2x%s", *addr++ & 0xff, (i == 5) ? " " : ":");
+    }
+  
+  printf("\n");
 
 }
 
@@ -478,15 +526,22 @@ void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf
   send_hdr = (struct ethhdr *) send_buf;
   
   //recv_buf data
-  rreq = (struct odr_message* )recv_buf + 14;
+  rreq = recv_buf + 14;
   //send_buf data
   data = send_buf + 14;
   //set rrep source addr to rreq source addr
+  printf("Before memcpy Write source rrep src_addr, rreq: %c \n", rreq->contents.odr_rreq.src_addr[0]);
+  printf("Before memcpy Write source rrep src_addr, rreq: %c \n", rreq->contents.odr_rreq.src_addr[1]);
+  printf("Before memcpy Write source rrep src_addr, rreq: %c \n", rreq->contents.odr_rreq.src_addr[2]);
   memcpy(rrep->contents.odr_rrep.src_addr, rreq->contents.odr_rreq.src_addr, 16);
+  printf("Write source rrep src_addr, rrep: %s \n", rrep->contents.odr_rrep.src_addr);
+  printf("Write source rrep src_addr, rreq: %s \n", rreq->contents.odr_rreq.src_addr);
+  
 
   //set rrep dest addr to rreq dest addr
   memcpy(rrep->contents.odr_rrep.dest_addr, rreq->contents.odr_rreq.dest_addr, 16);
   
+  rrep->type = RREP;
   rrep->contents.odr_rrep.hop_count = 1;
   
   //previous node ethernet address which is our new destination is contained in the recv_sockaddr
@@ -503,7 +558,7 @@ void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf
 
   send_hdr->h_proto = htons(PROT_MAGIC);
   
-  memcpy(data, &odr_msg_rreq, sizeof(odr_msg_rreq));
+  memcpy(data, rrep, sizeof(struct odr_message));
   
 }
 
@@ -536,6 +591,9 @@ void write_source_rreq(char *buffer, struct sockaddr_ll* sockaddr_rreq, char * d
   /* Initialize RREQ */
   odr_msg_rreq.type = 0;
   memcpy(odr_msg_rreq.contents.odr_rreq.src_addr, own_ip, 16);
+  printf("Write source rreq, own_ip: %s \n", own_ip);
+  printf("Write source rreq, own_ip: %c \n", own_ip[15]);
+  printf("Write source rreq, rreq: %s \n", odr_msg_rreq.contents.odr_rreq.src_addr);
   memcpy(&odr_msg_rreq.contents.odr_rreq.dest_addr, dest_addr, 16);
   odr_msg_rreq.contents.odr_rreq.b_id++;
   odr_msg_rreq.contents.odr_rreq.hop_count = 0;
