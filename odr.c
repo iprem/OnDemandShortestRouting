@@ -12,8 +12,22 @@
 #define RREQ 0
 #define RREP 1
 #define APP_PAYLOAD 2
-#define ROUTING_TABLE_SIZE 100
+#define ROUTING_TABLE_SIZE 10
 #define REVERSE_PATH_SIZE 100
+
+const char ipVM[10][16] = {
+							"130.245.156.21",
+							"130.245.156.22",
+							"130.245.156.23",
+							"130.245.156.24",
+							"130.245.156.25",
+							"130.245.156.26",
+							"130.245.156.27",
+							"130.245.156.28",
+							"130.245.156.29",
+							"130.245.156.20"	};
+
+
 
 struct rreq_reverse_path
 {
@@ -42,7 +56,9 @@ struct routing_table{
   int hop_count;			//Number of hops to detination
   struct timespec timestamp;	//Time stamp
   
-} vm[ROUTING_TABLE_SIZE];
+};
+
+static RT vm[ROUTING_TABLE_SIZE];
 
 struct rreq
 {
@@ -63,6 +79,7 @@ struct rreq
   int discover_flag;
   
 };
+
 
 struct rrep
 {
@@ -112,9 +129,14 @@ void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf
 void write_source_rreq(char *buffer, struct sockaddr_ll* sockaddr_rreq, char * dest_addr, int discover);
 void write_forward_rrep(char * send_buf, struct sockaddr_ll * pk_rreq, struct rreq_reverse_path * r_paths);
 void write_forward_rreq(char * buffer, struct sockaddr_ll* sockaddr_rreq, int rrep_sent);
-void update_route_table_rrep(RT* vm, struct sockaddr_ll * sock_rrep,  struct rrep* rrep);
-int setTimeStamp(RT *vm);
+void update_route_table_rrep(RT* , struct sockaddr_ll * sock_rrep,  struct rrep* rrep);
+void update_route_table_rreq(RT* , struct sockaddr_ll * sock_rreq,  struct rrep* rreq);
+int setTimeStamp(RT *);
 void print_eth_addr(unsigned char *addr);
+void init_RoutingEntry( RT * );
+void init_RoutingTable(RT *);
+RT* get_route_entry(RT* , char *dest_addr );
+void write_forward_rrep2(char * send_buf, struct sockaddr_ll * pk_rreq);
 
 int main(int argc, char **argv)
 {
@@ -142,6 +164,7 @@ int main(int argc, char **argv)
   memset(&odr_msg_rrep, 0, sizeof(struct odr_message));
   init_sockaddr_un(&ds_odr, ds_odr_path);
   init_rpaths(r_paths);
+  init_RoutingTable(vm);
 
   ud_sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
   //Bind(ud_sockfd, (SA*) &ds_odr, SUN_LEN(&ds_odr));
@@ -205,9 +228,12 @@ int main(int argc, char **argv)
 	    {
 	      printf("Did not have rreq \n" );
 	      add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+			/*Update routing table for incoming RREQ*/
+			update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
 	      memset(&pk_rreq, 0, sizeof(struct sockaddr_ll));
 	      write_forward_rreq(send_buf, &pk_rreq, 0 );
 	      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+		  
 	    }
 	  /* Actually needs to be different logic 
 	     you can not have an rreq and still be the destination */
@@ -247,7 +273,8 @@ int main(int argc, char **argv)
 	  update_route_table_rrep(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
 	  printf("After route table. \n");
 	  write_forward_rrep(send_buf, &pk_rreq, r_paths);
-	  printf("After route table. \n");
+	  //printf("After route table. \n");
+		Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
 	}
       
       memset(recv_buf, 0, ETH_FRAME_LEN);
@@ -273,12 +300,14 @@ void
 write_forward_rrep(char * send_buf, struct sockaddr_ll *pk_rreq , struct rreq_reverse_path * r_paths)
 {
   struct odr_message *forward_odr_msg_rrep = (struct odr_message * ) send_buf + 14;
-  struct rrep * rrep = &forward_odr_msg_rrep->contents.odr_rrep;
+  struct rrep *rrep = &forward_odr_msg_rrep->contents.odr_rrep;
   struct ethhdr *send_hdr = (struct ethhdr*) send_buf;
   struct rreq_reverse_path *rrep_rpath;
   unsigned char src_addr[6];
 
   rrep_rpath = get_rpath(r_paths, rrep->dest_addr);
+
+	printf("forward_rrep DestnAddr: %s\n",rrep->dest_addr);
   
   forward_odr_msg_rrep->contents.odr_rrep.hop_count++;
   
@@ -291,6 +320,27 @@ write_forward_rrep(char * send_buf, struct sockaddr_ll *pk_rreq , struct rreq_re
   send_hdr->h_proto = htons(PROT_MAGIC);
     
 }
+
+/*void write_forward_rrep2(char * send_buf, struct sockaddr_ll *pk_rreq){
+
+	struct odr_message *forward_odr_msg_rrep = (struct odr_message * ) send_buf + 14;
+	struct rrep rrep = forward_odr_msg_rrep->contents.odr_rrep;
+  	struct ethhdr *send_hdr = (struct ethhdr*) send_buf;
+	unsigned char src_addr[6];
+	
+	RT *entry= get_route_entry(vm,rrep.dest_addr);
+	printf("Got routing table entry rrep2: %s\n",rrep.dest_addr);
+	memcpy(pk_rreq->sll_addr, entry->next_hop, ETH_ALEN);
+	pk_rreq->sll_ifindex =  entry->out_interface_index;
+	forward_odr_msg_rrep->contents.odr_rrep.hop_count++;
+	
+	memcpy(send_hdr->h_dest, entry->next_hop, ETH_ALEN);
+	memcpy(send_hdr->h_source, get_source_ethaddr(src_addr , entry->out_interface_index), ETH_ALEN);
+  	send_hdr->h_proto = htons(PROT_MAGIC);
+
+
+}
+*/
 
 unsigned char * 
 get_source_ethaddr(unsigned char *buf, int index)
@@ -423,7 +473,7 @@ void update_route_table_rrep(RT* vm, struct sockaddr_ll* sock_rrep,  struct rrep
 
   RT* entry; 
   entry = get_route_entry(vm, rrep->dest_addr);
- 
+ printf("Got entry of routing entry to be updated\n");
   //set forward address
   memcpy(entry->next_hop, sock_rrep->sll_addr, ETH_ALEN);
   //set interface index
@@ -434,6 +484,28 @@ void update_route_table_rrep(RT* vm, struct sockaddr_ll* sock_rrep,  struct rrep
   setTimeStamp(entry);
 
 }
+
+void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rrep* rreq)
+{
+
+  RT* entry; 
+  entry = get_route_entry(vm, rreq->src_addr);
+	if(entry->hop_count > rreq->hop_count){
+
+	printf("Got entry of routing entry to be updated\n");
+  	//set forward address
+  	memcpy(entry->next_hop, sock_rreq->sll_addr, ETH_ALEN);
+  	//set interface index
+  	entry->out_interface_index = sock_rreq->sll_ifindex;
+  	//set hop count
+  	entry->hop_count = rreq->hop_count;
+
+  }
+
+  setTimeStamp(entry);
+
+}
+
 
 
 //XX
@@ -718,3 +790,28 @@ int isFloodingRequired(RT *vm, struct timespec stale, struct rreq *req){
 
 
 }
+
+/* Initialize Routing Table for all nodes */
+void init_RoutingTable(RT *vm){
+
+	int i;
+	
+	for ( i = 0; i < 10; i++ ){
+		
+		strcpy( vm[i].dest_addr, ipVM[i]);
+		init_RoutingEntry(&vm[i]);
+		setTimeStamp(&vm[i]);
+
+	}
+
+}
+
+/* Initialize Routing Table for any particular VM */
+void init_RoutingEntry( RT *vm_node ){
+
+	vm_node->next_hop[0] = 0;
+	vm_node->out_interface_index = -1;
+	vm_node->hop_count = -1;
+
+}
+
