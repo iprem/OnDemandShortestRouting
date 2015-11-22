@@ -14,16 +14,6 @@
 #define APP_PAYLOAD 2
 #define ROUTING_TABLE_SIZE 100
 #define REVERSE_PATH_SIZE 100
-/*
-  Routing table is a combination of reverse route/forward route
-*/
-
-/* 
-   Going to need beyond 10 records because we have combined backward routes with forward routes 
-   When we need to send rrep backwards we need to trace back according to prev_hop.
-   Thus we could have 9 different prev hop to 9 different vms....81ish records? 
-*/
-
 
 struct rreq_reverse_path
 {
@@ -293,6 +283,7 @@ write_forward_rrep(char * send_buf, struct sockaddr_ll *pk_rreq , struct rreq_re
   forward_odr_msg_rrep->contents.odr_rrep.hop_count++;
   
   memcpy(pk_rreq->sll_addr, rrep_rpath->prev_hop, ETH_ALEN);
+  
   pk_rreq->sll_ifindex =  rrep_rpath->in_interface_index;
 
   memcpy(send_hdr->h_dest, rrep_rpath->prev_hop, ETH_ALEN);
@@ -345,11 +336,11 @@ dont_have_rreq(struct rreq_reverse_path * rpath, struct rreq* rreq)
   for(i = 0; i < REVERSE_PATH_SIZE; i++)
     {
       if((!strcmp(rreq->src_addr, rpath->src_addr)) && (rreq->b_id == rpath->b_id))
-	return TRUE;
+	return FALSE;
 
     }
 
-  return FALSE;
+  return TRUE;
 }
 
 void
@@ -361,12 +352,31 @@ add_rpath(struct rreq_reverse_path * rpaths, struct sockaddr_ll * sock_rreq, str
       if(rpaths->b_id == -1)
 	{
 	  rpaths->b_id = rreq->b_id;
+	  printf("Reverse Path b_id: %d", rpaths->b_id);
 	  memcpy(rpaths->src_addr, rreq->src_addr, 16);
+	  printf("Reverse Path src_addr: %s", rpaths->src_addr);
 	  memcpy(rpaths->prev_hop, sock_rreq->sll_addr, ETH_ALEN);
+	  printf("Reverse Path prev_hop:");
+	  print_eth_addr(rpaths->prev_hop);
 	  rpaths->in_interface_index = sock_rreq->sll_ifindex;
+	  printf("Reverse Path index: %d", rpaths->in_interface_index);
 	}
       rpaths++;
     }
+}
+
+
+/*
+  
+  Remove reverse path when RREP is received
+  
+*/
+void
+remove_rpath()
+{
+
+  ;
+
 }
 
 RT* 
