@@ -127,7 +127,7 @@ void add_rpath(struct rreq_reverse_path * rpath, struct sockaddr_ll * sock_rreq,
 struct rreq_reverse_path * get_rpath(struct rreq_reverse_path * r_paths, char * dest_addr);
 void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf, struct sockaddr_ll* recv_sockaddr);
 void write_source_rreq(char *buffer, struct sockaddr_ll* sockaddr_rreq, char * dest_addr, int discover);
-void write_forward_rrep(char * send_buf, struct sockaddr_ll * pk_rreq, struct rreq_reverse_path * r_paths);
+void write_forward_rrep(char * send_buf, char * recv_buf, struct sockaddr_ll *pk_rreq , struct rreq_reverse_path * r_paths);
 void write_forward_rreq(char * buffer, struct sockaddr_ll* sockaddr_rreq, int rrep_sent);
 void update_route_table_rrep(RT* , struct sockaddr_ll * sock_rrep,  struct rrep* rrep);
 void update_route_table_rreq(RT* , struct sockaddr_ll * sock_rreq,  struct rrep* rreq);
@@ -272,9 +272,10 @@ int main(int argc, char **argv)
 	    }
 	  update_route_table_rrep(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
 	  printf("After route table. \n");
-	  write_forward_rrep(send_buf, &pk_rreq, r_paths);
-	  //printf("After route table. \n");
-		Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
+	  memset(send_buf, 0, ETH_FRAME_LEN);
+	  write_forward_rrep(send_buf, recv_buf,  &pk_rreq, r_paths);
+	  printf("After forward rrep \n");
+	  Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
 	}
       
       memset(recv_buf, 0, ETH_FRAME_LEN);
@@ -297,27 +298,40 @@ int main(int argc, char **argv)
 */
 
 void
-write_forward_rrep(char * send_buf, struct sockaddr_ll *pk_rreq , struct rreq_reverse_path * r_paths)
+write_forward_rrep(char * send_buf, char * recv_buf, struct sockaddr_ll *pk_rreq , struct rreq_reverse_path * r_paths)
 {
-  struct odr_message *forward_odr_msg_rrep = (struct odr_message * ) send_buf + 14;
-  struct rrep *rrep = &forward_odr_msg_rrep->contents.odr_rrep;
-  struct ethhdr *send_hdr = (struct ethhdr*) send_buf;
+  struct odr_message *recv_odr_msg_rrep = recv_buf + 14;
+  struct rrep *rrep = &(recv_odr_msg_rrep->contents.odr_rrep);
+  struct ethhdr *new_send_hdr = (struct ethhdr*) recv_buf;
   struct rreq_reverse_path *rrep_rpath;
   unsigned char src_addr[6];
 
   rrep_rpath = get_rpath(r_paths, rrep->dest_addr);
 
-	printf("forward_rrep DestnAddr: %s\n",rrep->dest_addr);
+  printf("forward_rrep DestnAddr: %s\n", rrep->dest_addr);
   
-  forward_odr_msg_rrep->contents.odr_rrep.hop_count++;
-  
-  memcpy(pk_rreq->sll_addr, rrep_rpath->prev_hop, ETH_ALEN);
-  
-  pk_rreq->sll_ifindex =  rrep_rpath->in_interface_index;
+  recv_odr_msg_rrep->contents.odr_rrep.hop_count++;
 
-  memcpy(send_hdr->h_dest, rrep_rpath->prev_hop, ETH_ALEN);
-  memcpy(send_hdr->h_source, get_source_ethaddr(src_addr , rrep_rpath->in_interface_index), ETH_ALEN);
-  send_hdr->h_proto = htons(PROT_MAGIC);
+  printf("passed hopcount \n");
+  memcpy(pk_rreq->sll_addr, rrep_rpath->prev_hop, ETH_ALEN);
+  print_eth_addr(pk_rreq->sll_addr);
+  printf("passed addr \n");
+
+  pk_rreq->sll_ifindex =  rrep_rpath->in_interface_index;
+  printf("sll_ifindex: %d \n", pk_rreq->sll_ifindex);
+  printf("passed index  \n");
+  memcpy(new_send_hdr->h_dest, rrep_rpath->prev_hop, ETH_ALEN);
+  print_eth_addr(new_send_hdr->h_dest);
+  printf("passed dest  \n");
+  memcpy(new_send_hdr->h_source, get_source_ethaddr(src_addr , rrep_rpath->in_interface_index), ETH_ALEN);
+  print_eth_addr(new_send_hdr->h_source);
+  printf("passed h_source  \n");
+
+  new_send_hdr->h_proto = htons(PROT_MAGIC);
+
+  //modify recv_buf in place
+  //copy to send_buf
+  memcpy(send_buf, recv_buf, ETH_FRAME_LEN);
     
 }
 
@@ -396,20 +410,24 @@ dont_have_rreq(struct rreq_reverse_path * rpath, struct rreq* rreq)
 void
 add_rpath(struct rreq_reverse_path * rpaths, struct sockaddr_ll * sock_rreq, struct rreq * rreq)
 {
+
+  printf ("__FUNCTION__ = %s\n", __FUNCTION__);
   int i;
   for(i = 0; i < ROUTING_TABLE_SIZE; i++)
     {
       if(rpaths->b_id == -1)
 	{
 	  rpaths->b_id = rreq->b_id;
-	  printf("Reverse Path b_id: %d", rpaths->b_id);
+	  printf("Reverse Path b_id: %d \n", rpaths->b_id);
 	  memcpy(rpaths->src_addr, rreq->src_addr, 16);
-	  printf("Reverse Path src_addr: %s", rpaths->src_addr);
+	  printf("Reverse Path src_addr: %s \n", rpaths->src_addr);
+	  memcpy(rpaths->dest_addr, rreq->dest_addr, 16);
 	  memcpy(rpaths->prev_hop, sock_rreq->sll_addr, ETH_ALEN);
-	  printf("Reverse Path prev_hop:");
+	  printf("Reverse Path prev_hop:\n");
 	  print_eth_addr(rpaths->prev_hop);
 	  rpaths->in_interface_index = sock_rreq->sll_ifindex;
-	  printf("Reverse Path index: %d", rpaths->in_interface_index);
+	  printf("Reverse Path index: %d \n", rpaths->in_interface_index);
+	  break;
 	}
       rpaths++;
     }
@@ -453,9 +471,10 @@ get_rpath(struct rreq_reverse_path * r_paths, char * dest_addr)
       if(!strcmp(r_paths->dest_addr, dest_addr))
 	return r_paths;
 
-
+      r_paths++;
     }
 
+  printf("No reverse path. \n");
   return NULL;
 }
 
