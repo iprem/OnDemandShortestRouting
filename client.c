@@ -13,7 +13,7 @@ int main(int argc, char **argv)
   //char ds_cli_path[] = "client_sock_XXXXXX";
   //char* ds_odr_path = "/home/mliuzzi/odr_path";
   // Paths for testing are uncommented
-  char *ds_odr_path = "/users/mliuzzi/cse533/un_odr_path";
+  char *ds_odr_path = "/home/mliuzzi/un_odr_path";
   // has newline
   char vm_choice[10] = "";
   struct sockaddr_un cliaddr, ds_odr;
@@ -40,10 +40,9 @@ int main(int argc, char **argv)
   Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
 
   init_sockaddr_un(&ds_odr, ds_odr_path);
+  Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
 
-  dg_cli(stdin, sockfd, (SA *) &ds_odr, sizeof(ds_odr));
-
-  //msg_send(sockfd, recv_buf, )
+  msg_send(sockfd, "192.168.1.1", 1, "1", 0);
 
 
   /*

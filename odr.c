@@ -3,7 +3,7 @@
 #include <netpacket/packet.h>
 #include <net/ethernet.h>
 #include "hw_addrs.h"
-
+#include <sys/select.h>
 
 #define RT struct routing_table
 #define TRUE 	1
@@ -14,6 +14,8 @@
 #define APP_PAYLOAD 2
 #define ROUTING_TABLE_SIZE 10
 #define REVERSE_PATH_SIZE 100
+#define SOURCE 1
+#define INTERMEDIATE 0
 
 const char ipVM[10][16] = {
 							"130.245.156.21",
@@ -141,7 +143,8 @@ void write_forward_rrep2(char * send_buf, struct sockaddr_ll * pk_rreq);
 int main(int argc, char **argv)
 {
 
-  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0;
+  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0;
+  fd_set rset;
   socklen_t len = sizeof(struct sockaddr_ll);
   //char *ds_odr_path = "/home/mliuzzi/odr_path";
   //char *ds_odr_path = "/users/mliuzzi/cse533/un_odr_path";
@@ -167,10 +170,7 @@ int main(int argc, char **argv)
   init_RoutingTable(vm);
 
   ud_sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
-  //Bind(ud_sockfd, (SA*) &ds_odr, SUN_LEN(&ds_odr));
-
-  //msg_recv(ud_sockfd, recv_buf, source_ip, source_port );
-  //msg_send(ud_sockfd, dest_ip, dest_port, msg, 0);
+  Bind(ud_sockfd, (SA*) &ds_odr, SUN_LEN(&ds_odr));
 
   /*
     Receive a messsage from local socket
@@ -191,7 +191,8 @@ int main(int argc, char **argv)
   //force send rreq
   //other odr will just wait to receive 
   //arg 1 is flag to do it and arg2 is ip
-  if (argc > 1)
+
+  /*  if (argc > 1)
     {
       printf("argc: %d \n", argc);
       if(strtol(argv[1], 0, 10) == 1)
@@ -202,7 +203,34 @@ int main(int argc, char **argv)
 	  flood_rreqs(pk_sockfd, send_buf, &pk_rreq );
 	}
     }
+  */
 
+  while(1)
+    {
+      FD_ZERO(&rset);
+      FD_SET(ud_sockfd, &rset);
+      FD_SET(pk_sockfd, &rset);
+      int max_fd = pk_sockfd > ud_sockfd ? pk_sockfd : ud_sockfd; 
+      printf("max fd: %d \n", max_fd);
+      select(max_fd + 1, &rset, NULL, NULL, NULL);
+      printf("return from recvfrom \n", max_fd);
+      //source
+      if(FD_ISSET(ud_sockfd, &rset))
+	{
+	  recvfrom(ud_sockfd, recv_buf, ETH_FRAME_LEN, 0, NULL, NULL);
+	  printf("Received client msg \n");
+	}
+	
+	
+      //intermediate node
+      if(FD_ISSET(pk_sockfd, &rset))
+	{
+	  recvfrom(pk_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *) &pk_rreq, &len);
+	  printf("Received packet  msg \n");
+	}
+    }
+
+  /*
   recvfrom(pk_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *) &pk_rreq, &len);
   printf("Return from receivefrom prior to loop. \n" );
   while(1)
@@ -228,15 +256,15 @@ int main(int argc, char **argv)
 	    {
 	      printf("Did not have rreq \n" );
 	      add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
-			/*Update routing table for incoming RREQ*/
-			update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
+	      //Update routing table for incoming RREQ
+	      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
 	      memset(&pk_rreq, 0, sizeof(struct sockaddr_ll));
 	      write_forward_rreq(send_buf, &pk_rreq, 0 );
 	      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 		  
 	    }
-	  /* Actually needs to be different logic 
-	     you can not have an rreq and still be the destination */
+	    // Actually needs to be different logic 
+	    //you can not have an rreq and still be the destination 
 	  if(reached_destination(&(recv_odr_msg->contents.odr_rreq)))
 	    {
 	      printf("Reached Destination \n" );
@@ -281,6 +309,7 @@ int main(int argc, char **argv)
       memset(recv_buf, 0, ETH_FRAME_LEN);
       recvfrom(pk_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *) &pk_rreq, &len);
     }
+*/
 
   unlink(ds_odr_path);
   exit(0);
