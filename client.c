@@ -42,7 +42,7 @@ int main(int argc, char **argv)
   init_sockaddr_un(&ds_odr, ds_odr_path);
   Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
 
-  msg_send(sockfd, "192.168.1.1", 1, "1", 0);
+  msg_send(sockfd, "130.245.156.20", 1, "1", 0);
 
 
   /*

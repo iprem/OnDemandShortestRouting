@@ -120,7 +120,7 @@ struct odr_message
 }odr_msg_rreq; /* our global, source, rreq */
 
 
-
+int have_route(RT* entry);
 int reached_destination(struct rreq * rreq);
 void init_rpaths(struct rreq_reverse_path * rpath);
 void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq);
@@ -133,18 +133,26 @@ void write_source_rreq(char *buffer, struct sockaddr_ll* sockaddr_rreq, char * d
 void write_forward_rrep(char * send_buf, char * recv_buf, struct sockaddr_ll *pk_rreq , struct rreq_reverse_path * r_paths);
 void write_forward_rreq(char * buffer, struct sockaddr_ll* sockaddr_rreq, int rrep_sent);
 void update_route_table_rrep(RT* , struct sockaddr_ll * sock_rrep,  struct rrep* rrep);
-void update_route_table_rreq(RT* , struct sockaddr_ll * sock_rreq,  struct rrep* rreq);
+void update_route_table_rreq(RT* , struct sockaddr_ll * sock_rreq,  struct rreq* rreq);
 int setTimeStamp(RT *);
 void print_eth_addr(unsigned char *addr);
 void init_RoutingEntry( RT * );
 void init_RoutingTable(RT *);
 RT* get_route_entry(RT* , char *dest_addr );
 void write_forward_rrep2(char * send_buf, struct sockaddr_ll * pk_rreq);
+int isRoutingTableStale(RT *vm, struct timespec stale);
+void delete_stale_entry(RT* entry);
+int lower_hop_count(struct rreq_reverse_path* rpath, struct rreq* rreq);
+int improve_route(RT* vm, struct rreq* rreq);
+void remove_rpath(struct rreq_reverse_path * rpaths,  struct rreq * rreq);
+int reconfirm_route(RT* vm, struct rreq* rreq, struct timespec staleness_param);
+int new_neighbor_same_hops(struct rreq_reverse_path * r_paths, struct rreq* rreq, struct sockaddr_ll* sock_rreq);
+int reached_src(struct rrep * rrep);
 
 int main(int argc, char **argv)
 {
 
-  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0, discover = 0, sent_rrep = 0;
+  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0, discover = 0, sent_rrep = 0, send_application_payload = 0;
   fd_set rset;
   socklen_t len = sizeof(struct sockaddr_ll);
   //char *ds_odr_path = "/home/mliuzzi/odr_path";
@@ -175,8 +183,8 @@ int main(int argc, char **argv)
   init_RoutingTable(vm);
 
   //set our staleness parameter
-  staleness_param.tv_sec = strtol(argv[1], 0, 10);
-
+  //staleness_param.tv_sec = strtol(argv[1], 0, 10);
+  staleness_param.tv_sec = 10;
 
 
   ud_sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
@@ -223,9 +231,7 @@ int main(int argc, char **argv)
       FD_SET(ud_sockfd, &rset);
       FD_SET(pk_sockfd, &rset);
       int max_fd = pk_sockfd > ud_sockfd ? pk_sockfd : ud_sockfd; 
-      printf("max fd: %d \n", max_fd);
       select(max_fd + 1, &rset, NULL, NULL, NULL);
-      printf("return from recvfrom \n", max_fd);
       //source
       if(FD_ISSET(ud_sockfd, &rset))
 	{
@@ -240,24 +246,23 @@ int main(int argc, char **argv)
 	      if(isRoutingTableStale(vm_entry_iter, staleness_param))
 		{
 		  delete_stale_entry(vm_entry_iter);
-		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag;);
+		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag);
 		  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 		}
 	      else if(msg_send_ptr -> flag == DISCOVER)
 		{
 		  delete_stale_entry(vm_entry_iter);
-		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag;);
+		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag);
 		  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 		}
 	      else
 		{
-		  //XX
-		  //WE CAN SEND APPLICATION PAYLOAD!!!
-		}
+		  send_application_payload = 1;
+ 		}
 	    }
 	  else if(!have_route(vm_entry_iter))
 	    {
-	      write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag;);
+	      write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag);
 	      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 	    }	  
 	}
@@ -297,7 +302,7 @@ int main(int argc, char **argv)
 			  remove_rpath(r_paths, &(recv_odr_msg->contents.odr_rreq));
 			  add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
 			  memset(&pk_rreq, 0, sizeof(struct sockaddr_ll));
-			  write_forward_rreq(send_buf, &pk_rreq, );
+			  write_forward_rreq(send_buf, &pk_rreq, recv_odr_msg->contents.odr_rreq.rrep_flag);
 			  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 			}
 		      //else we have a valid route and can reply with a rrep
@@ -335,7 +340,7 @@ int main(int argc, char **argv)
 		{
 		  if(sent_rrep)
 		    {
-		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq);)
+		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
 		      //need to set sent_rrep based on whether or not a rrep was sent from this node
 		      write_forward_rreq(send_buf, &pk_rreq, sent_rrep);
 		      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
@@ -347,13 +352,13 @@ int main(int argc, char **argv)
 		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
 		    }
 		}
-	      else if(reconfirm_route(vm, &(recv_odr_msg->contents.odr_rreq)))
+	      else if(reconfirm_route(vm, &(recv_odr_msg->contents.odr_rreq), staleness_param))
 		{
-		  vm_entry_iter = get_route_entry(vm, rreq->dest_addr);
+		  vm_entry_iter = get_route_entry(vm, recv_odr_msg->contents.odr_rreq.dest_addr);
 		  setTimeStamp(vm_entry_iter);
 		}
 
-	      else if(new_neighbor_same_hops(vm, &(recv_odr_msg->contents.odr_rreq)))
+	      else if(new_neighbor_same_hops(r_paths, &(recv_odr_msg->contents.odr_rreq), &pk_rreq))
 		{
 		  if(sent_rrep)
 		    {
@@ -368,9 +373,24 @@ int main(int argc, char **argv)
 		    }
 		}
 	    }
+	  if(recv_odr_msg->type == RREP)
+	    {
+	      if(reached_src(&recv_odr_msg->contents.odr_rrep))
+		{
+		  update_route_table_rrep(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
+		  send_application_payload = 1;
+		}
+	      else
+		{
+		  update_route_table_rrep(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rrep));
+		  write_forward_rrep(send_buf, recv_buf,  &pk_rreq, r_paths);
+		  Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
+		}
+	    }
 	}
       
       //reset everything
+      send_application_payload = 0;
       sent_rrep = 0;
       memset(send_buf, 0, ETH_FRAME_LEN);
       memset(recv_buf, 0, ETH_FRAME_LEN);
@@ -564,6 +584,7 @@ lower_hop_count(struct rreq_reverse_path* rpath, struct rreq* rreq)
 	   return FALSE;
        }
    }
+ return FALSE;
 }
 
 int
@@ -587,10 +608,10 @@ remove_rpath(struct rreq_reverse_path * rpaths,  struct rreq * rreq)
   int i;
   for(i = 0; i < ROUTING_TABLE_SIZE; i++)
     {
-      if(rpaths->b_id == rreq->b_id && !strcmp(rpaths_srcaddr, rreq->src_addr))
+      if(rpaths->b_id == rreq->b_id && !strcmp(rpaths->src_addr, rreq->src_addr))
 	{
 	  memset(rpaths, 0, sizeof(struct rreq_reverse_path));
-	  rpaths->b_id = -1
+	  rpaths->b_id = -1;
 	  return;
 	}
       rpaths++;
@@ -618,7 +639,7 @@ add_rpath(struct rreq_reverse_path * rpaths, struct sockaddr_ll * sock_rreq, str
 	  print_eth_addr(rpaths->prev_hop);
 	  rpaths->in_interface_index = sock_rreq->sll_ifindex;
 	  printf("Reverse Path index: %d \n", rpaths->in_interface_index);
-	  rpaths->hop_count = sock_rreq->hop_count;
+	  rpaths->hop_count = rreq->hop_count;
 	  printf("Rpath hop count: %d \n", rpaths->hop_count);
 	  break;
 	}
@@ -659,7 +680,7 @@ have_route(RT* entry)
 	return TRUE;
     }
 
-  return FALSE:
+  return FALSE;
       
 }
 
@@ -683,7 +704,7 @@ int
 new_neighbor_same_hops(struct rreq_reverse_path * r_paths, struct rreq* rreq, struct sockaddr_ll* sock_rreq)
 {
   struct rreq_reverse_path* r_path = NULL;
-  r_path = get_rpath(rpaths, rreq->src_addr);
+  r_path = get_rpath(r_paths, rreq->src_addr);
   if(r_path)
     {
       if(memcmp(r_path->prev_hop, sock_rreq->sll_addr, 6))
@@ -713,12 +734,15 @@ reconfirm_route(RT* vm, struct rreq* rreq, struct timespec staleness_param)
 	}
     }
 
-  return FALSE
+  return FALSE;
 }
 
 
 /*
   Improve route will also cover the case that we DON'T have a route i.e. the vm->hop_count == -1
+
+  Should always have a route by the time we get to improve_route. If we don't, return FALSE because something
+  must have gone wrong.
  */
   
 int
@@ -735,6 +759,7 @@ improve_route(RT* vm, struct rreq* rreq)
 	    return FALSE;
 	}
     }
+  return FALSE;
 }
 
 /*
@@ -771,7 +796,7 @@ void update_route_table_rrep(RT* vm, struct sockaddr_ll* sock_rrep,  struct rrep
   We want to update our table if the route to the rreq source is better than the one we knew
 
  */
-void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rrep* rreq)
+void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rreq* rreq)
 {
 
   RT* entry; 
@@ -788,7 +813,7 @@ void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rrep
     
   }
   
-  setTimeStamp(entry;)
+  setTimeStamp(entry);
 
 }
 
@@ -853,6 +878,21 @@ void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq)
 	}
     }
 }
+
+
+int reached_src(struct rrep * rrep)
+{
+  char own_ip[16];
+  findOwnIP(own_ip);
+    
+  if (!strcmp(rrep->src_addr, own_ip))
+    return TRUE;
+  else
+    return FALSE;
+
+
+}
+
 
 int reached_destination(struct rreq * rreq)
 {
@@ -941,7 +981,6 @@ void write_source_rreq(char *buffer, struct sockaddr_ll* sockaddr_rreq, char * d
   //ethernet header is 14 bytes
   char *data;
   unsigned char dest_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-  int i = 0;
   char own_ip[16];
 
   /* Set ethernet frame ptrs */
