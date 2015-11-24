@@ -1071,8 +1071,10 @@ int isRoutingTableStale(RT *vm, struct timespec stale){
 
 /*Set timestamp for a routing table */
 int setTimeStamp(RT *vm){
-	
-  if(clock_settime(CLOCK_REALTIME, &vm->timestamp) == -1){
+  
+  
+  if(clock_gettime(CLOCK_REALTIME, &vm->timestamp) == -1){
+    perror("setTimeStamp: ");
     printf("Failed to set timestamp for destination IP: %s", vm->ip);
     return FALSE;
   }
