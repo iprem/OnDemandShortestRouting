@@ -249,12 +249,10 @@ int main(int argc, char **argv)
 		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag;);
 		  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 		}
-
 	      else
 		{
 		  //XX
 		  //WE CAN SEND APPLICATION PAYLOAD!!!
-
 		}
 	    }
 	  else if(!have_route(vm_entry_iter))
@@ -263,23 +261,31 @@ int main(int argc, char **argv)
 	      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 	    }	  
 	}
-      //intermediate node
+      //Intermediate OR Destination node
       if(FD_ISSET(pk_sockfd, &rset))
 	{
 	  printf("Received packet msg \n");
 	  recvfrom(pk_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *) &pk_rreq, &len);
 	  if(recv_odr_msg->type == RREQ)
 	    {
-	      if(reached_destination(&(recv_odr_msg->contents.odr_rreq)))
+	      // REACHED DESTINATION
+	      // First rreq OR lower hop count
+	      if(reached_destination(&(recv_odr_msg->contents.odr_rreq)) && 
+		 (dont_have_rreq(r_paths, &(recv_odr_msg->contents.odr_rreq)) || lower_hop_count(r_paths, &(recv_odr_msg->contents.odr_rreq))))
 		{
+		  add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
 		  write_source_rrep(&odr_msg_rrep, recv_buf, send_buf, &pk_rreq);
 		  Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
+		  sent_rrep = 1;
 		}	
-	      //if new rreq OR if route has a lower hop count...
-	      if(dont_have_rreq(r_paths, &(recv_odr_msg->contents.odr_rreq)) || lower_hop_count(r_paths, &(recv_odr_msg->contents.odr_rreq)))
+
+	      // INTERMEDIATE NODE
+	      // New rreq OR if route has a lower hop count...
+	      else if(dont_have_rreq(r_paths, &(recv_odr_msg->contents.odr_rreq)) || lower_hop_count(r_paths, &(recv_odr_msg->contents.odr_rreq)))
 		{
 		  vm_entry_iter = get_route_entry(vm, msg_send_ptr->dest_ip);
 
+		  // HAVE ROUTE
 		  if(have_route(vm_entry_iter))
 		    {
 		      //if stale or force discover
@@ -302,7 +308,7 @@ int main(int argc, char **argv)
 			  sent_rrep = 1;
 			}
 		    }
-		  //no route
+		  // NO ROUTE
 		  else
 		    {
 		      add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
@@ -311,12 +317,25 @@ int main(int argc, char **argv)
 		      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 		    }
 		}
+	      /*
+		Does the RREQ improve our knowledge of other nodes? 
+
+		Two cases:
+		If we sent an rrep from this node AND the rreq we received improves / is a new route
+		we have to flood.
+		
+		If we didn't send an rrep then the flooding is taking care of above and all we have to do is
+		update the route table
+	      */
 	      
+	      //update_route_table_rreq only needs to be done if improve the route
+	      //so do it here independent of all sending
+	      //improve route covers case that there is no route
 	      if(improve_route(vm, &(recv_odr_msg->contents.odr_rreq)))
 		{
 		  if(sent_rrep)
 		    {
-		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq);)
 		      //need to set sent_rrep based on whether or not a rrep was sent from this node
 		      write_forward_rreq(send_buf, &pk_rreq, sent_rrep);
 		      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
@@ -327,7 +346,26 @@ int main(int argc, char **argv)
 		    {
 		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
 		    }
-	      
+		}
+	      else if(reconfirm_route(vm, &(recv_odr_msg->contents.odr_rreq)))
+		{
+		  vm_entry_iter = get_route_entry(vm, rreq->dest_addr);
+		  setTimeStamp(vm_entry_iter);
+		}
+
+	      else if(new_neighbor_same_hops(vm, &(recv_odr_msg->contents.odr_rreq)))
+		{
+		  if(sent_rrep)
+		    {
+		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+		      //need to set sent_rrep based on whether or not a rrep was sent from this node
+		      write_forward_rreq(send_buf, &pk_rreq, sent_rrep);
+		      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+		    }
+		  else
+		    {
+		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+		    }
 		}
 	    }
 	}
@@ -508,6 +546,10 @@ init_rpaths(struct rreq_reverse_path * rpath)
     }
 }
 
+/*
+  Has this rreq gotten to us in less hops than a previous rreq?
+*/
+
 int
 lower_hop_count(struct rreq_reverse_path* rpath, struct rreq* rreq)
 {
@@ -636,8 +678,50 @@ get_rpath(struct rreq_reverse_path * r_paths, char * dest_addr)
   printf("No reverse path. \n");
   return NULL;
 }
+
+int
+new_neighbor_same_hops(struct rreq_reverse_path * r_paths, struct rreq* rreq, struct sockaddr_ll* sock_rreq)
+{
+  struct rreq_reverse_path* r_path = NULL;
+  r_path = get_rpath(rpaths, rreq->src_addr);
+  if(r_path)
+    {
+      if(memcmp(r_path->prev_hop, sock_rreq->sll_addr, 6))
+	{
+	  if(r_path->hop_count == rreq->hop_count)
+	    {
+	      return TRUE;
+	    }
+	}
+    }
+
+  return FALSE;
+}
+
  
-void
+int
+reconfirm_route(RT* vm, struct rreq* rreq, struct timespec staleness_param)
+{
+  RT* entry = NULL;
+  entry = get_route_entry(vm, rreq->dest_addr);
+  if(entry)
+    {
+      if (!isRoutingTableStale(vm, staleness_param))
+	{
+	  if(entry->hop_count == rreq->hop_count)
+	    return TRUE;
+	}
+    }
+
+  return FALSE
+}
+
+
+/*
+  Improve route will also cover the case that we DON'T have a route i.e. the vm->hop_count == -1
+ */
+  
+int
 improve_route(RT* vm, struct rreq* rreq)
 {
   int i;
@@ -654,6 +738,9 @@ improve_route(RT* vm, struct rreq* rreq)
 }
 
 /*
+//XX
+//We need to check if it is better than the previous route...??
+Set forward pointers in response to rrep
 
 @vm routing table
 @sock_rrep the sockaddr_ll from receivefrom which contains the information we need to setup the forward path
@@ -678,7 +765,12 @@ void update_route_table_rrep(RT* vm, struct sockaddr_ll* sock_rrep,  struct rrep
   setTimeStamp(entry);
 
 }
+/*
+  Set forward ptrs in response to a rreq
+  Notice that we compare to rreq->src_addr here
+  We want to update our table if the route to the rreq source is better than the one we knew
 
+ */
 void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rrep* rreq)
 {
 
@@ -689,14 +781,14 @@ void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rrep
     printf("Got entry of routing entry to be updated\n");
     //set forward address
     memcpy(entry->next_hop, sock_rreq->sll_addr, ETH_ALEN);
-  	//set interface index
+    //set interface index
     entry->out_interface_index = sock_rreq->sll_ifindex;
     //set hop count
     entry->hop_count = rreq->hop_count;
     
   }
   
-  setTimeStamp(entry);
+  setTimeStamp(entry;)
 
 }
 
