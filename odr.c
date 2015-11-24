@@ -38,6 +38,7 @@ struct rreq_reverse_path
   int b_id; /*broadcast id*/
   unsigned char prev_hop[6];
   int in_interface_index;	//Out going interface index
+  int hop_count;
 
   /* presentation format */
   char src_addr[16]; 
@@ -143,7 +144,7 @@ void write_forward_rrep2(char * send_buf, struct sockaddr_ll * pk_rreq);
 int main(int argc, char **argv)
 {
 
-  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0;
+  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0, discover = 0, sent_rrep = 0;
   fd_set rset;
   socklen_t len = sizeof(struct sockaddr_ll);
   //char *ds_odr_path = "/home/mliuzzi/odr_path";
@@ -153,11 +154,14 @@ int main(int argc, char **argv)
   struct sockaddr_ll pk_rreq;
   struct odr_message* recv_odr_msg;
   struct odr_message odr_msg_rrep;
+  struct msg_send_struct* msg_send_ptr;
+  struct timespec staleness_param;
+  RT* vm_entry_iter = NULL;
   char recv_buf[ETH_FRAME_LEN];
   char send_buf[ETH_FRAME_LEN];
   char own_ip[16];
   char *data = recv_buf + 14;
-  
+
 
   /* Initialize structures to zero */
   memset(&odr_msg_rreq, 0, sizeof(struct odr_message));
@@ -165,9 +169,15 @@ int main(int argc, char **argv)
   memset(recv_buf, 0, ETH_FRAME_LEN);
   memset(send_buf, 0, ETH_FRAME_LEN);
   memset(&odr_msg_rrep, 0, sizeof(struct odr_message));
+  memset(&staleness_param, 0, sizeof(struct timespec));
   init_sockaddr_un(&ds_odr, ds_odr_path);
   init_rpaths(r_paths);
   init_RoutingTable(vm);
+
+  //set our staleness parameter
+  staleness_param.tv_sec = strtol(argv[1], 0, 10);
+
+
 
   ud_sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
   Bind(ud_sockfd, (SA*) &ds_odr, SUN_LEN(&ds_odr));
@@ -205,6 +215,8 @@ int main(int argc, char **argv)
     }
   */
 
+
+  recv_odr_msg = data;
   while(1)
     {
       FD_ZERO(&rset);
@@ -217,17 +229,113 @@ int main(int argc, char **argv)
       //source
       if(FD_ISSET(ud_sockfd, &rset))
 	{
-	  recvfrom(ud_sockfd, recv_buf, ETH_FRAME_LEN, 0, NULL, NULL);
 	  printf("Received client msg \n");
+	  //XX
+	  //We need to know who it's from but for now just deal with one client
+	  recvfrom(ud_sockfd, recv_buf, ETH_FRAME_LEN, 0, NULL, NULL);
+	  msg_send_ptr = recv_buf;
+	  vm_entry_iter = get_route_entry(vm, msg_send_ptr->dest_ip);
+	  if(have_route(vm_entry_iter))
+	    {
+	      if(isRoutingTableStale(vm_entry_iter, staleness_param))
+		{
+		  delete_stale_entry(vm_entry_iter);
+		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag;);
+		  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+		}
+	      else if(msg_send_ptr -> flag == DISCOVER)
+		{
+		  delete_stale_entry(vm_entry_iter);
+		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag;);
+		  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+		}
+
+	      else
+		{
+		  //XX
+		  //WE CAN SEND APPLICATION PAYLOAD!!!
+
+		}
+	    }
+	  else if(!have_route(vm_entry_iter))
+	    {
+	      write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag;);
+	      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+	    }	  
 	}
-	
-	
       //intermediate node
       if(FD_ISSET(pk_sockfd, &rset))
 	{
+	  printf("Received packet msg \n");
 	  recvfrom(pk_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *) &pk_rreq, &len);
-	  printf("Received packet  msg \n");
+	  if(recv_odr_msg->type == RREQ)
+	    {
+	      if(reached_destination(&(recv_odr_msg->contents.odr_rreq)))
+		{
+		  write_source_rrep(&odr_msg_rrep, recv_buf, send_buf, &pk_rreq);
+		  Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
+		}	
+	      //if new rreq OR if route has a lower hop count...
+	      if(dont_have_rreq(r_paths, &(recv_odr_msg->contents.odr_rreq)) || lower_hop_count(r_paths, &(recv_odr_msg->contents.odr_rreq)))
+		{
+		  vm_entry_iter = get_route_entry(vm, msg_send_ptr->dest_ip);
+
+		  if(have_route(vm_entry_iter))
+		    {
+		      //if stale or force discover
+		      if(isRoutingTableStale(vm_entry_iter, staleness_param) || 
+			 recv_odr_msg->contents.odr_rreq.discover_flag == DISCOVER)
+			{
+			  delete_stale_entry(vm_entry_iter);
+			  //will remove if it exists or return silently
+			  remove_rpath(r_paths, &(recv_odr_msg->contents.odr_rreq));
+			  add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+			  memset(&pk_rreq, 0, sizeof(struct sockaddr_ll));
+			  write_forward_rreq(send_buf, &pk_rreq, );
+			  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+			}
+		      //else we have a valid route and can reply with a rrep
+		      else
+			{
+			  write_source_rrep(&odr_msg_rrep, recv_buf, send_buf, &pk_rreq);
+			  Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
+			  sent_rrep = 1;
+			}
+		    }
+		  //no route
+		  else
+		    {
+		      add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+		      memset(&pk_rreq, 0, sizeof(struct sockaddr_ll));
+		      write_forward_rreq(send_buf, &pk_rreq, recv_odr_msg->contents.odr_rreq.rrep_flag);
+		      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+		    }
+		}
+	      
+	      if(improve_route(vm, &(recv_odr_msg->contents.odr_rreq)))
+		{
+		  if(sent_rrep)
+		    {
+		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+		      //need to set sent_rrep based on whether or not a rrep was sent from this node
+		      write_forward_rreq(send_buf, &pk_rreq, sent_rrep);
+		      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+		    }
+		  //Since we haven't sent a rrep from this node the rreq will continue to be flooded
+		  //All we have to do is update our own routing table
+		  else
+		    {
+		      update_route_table_rreq(vm, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
+		    }
+	      
+		}
+	    }
 	}
+      
+      //reset everything
+      sent_rrep = 0;
+      memset(send_buf, 0, ETH_FRAME_LEN);
+      memset(recv_buf, 0, ETH_FRAME_LEN);
     }
 
   /*
@@ -314,7 +422,7 @@ int main(int argc, char **argv)
   unlink(ds_odr_path);
   exit(0);
 
-  }
+}
 
 
 /*
@@ -364,27 +472,6 @@ write_forward_rrep(char * send_buf, char * recv_buf, struct sockaddr_ll *pk_rreq
     
 }
 
-/*void write_forward_rrep2(char * send_buf, struct sockaddr_ll *pk_rreq){
-
-	struct odr_message *forward_odr_msg_rrep = (struct odr_message * ) send_buf + 14;
-	struct rrep rrep = forward_odr_msg_rrep->contents.odr_rrep;
-  	struct ethhdr *send_hdr = (struct ethhdr*) send_buf;
-	unsigned char src_addr[6];
-	
-	RT *entry= get_route_entry(vm,rrep.dest_addr);
-	printf("Got routing table entry rrep2: %s\n",rrep.dest_addr);
-	memcpy(pk_rreq->sll_addr, entry->next_hop, ETH_ALEN);
-	pk_rreq->sll_ifindex =  entry->out_interface_index;
-	forward_odr_msg_rrep->contents.odr_rrep.hop_count++;
-	
-	memcpy(send_hdr->h_dest, entry->next_hop, ETH_ALEN);
-	memcpy(send_hdr->h_source, get_source_ethaddr(src_addr , entry->out_interface_index), ETH_ALEN);
-  	send_hdr->h_proto = htons(PROT_MAGIC);
-
-
-}
-*/
-
 unsigned char * 
 get_source_ethaddr(unsigned char *buf, int index)
 {
@@ -421,6 +508,21 @@ init_rpaths(struct rreq_reverse_path * rpath)
     }
 }
 
+int
+lower_hop_count(struct rreq_reverse_path* rpath, struct rreq* rreq)
+{
+ int i;
+ for(i = 0; i < REVERSE_PATH_SIZE; i++)
+   {
+     if((!strcmp(rreq->src_addr, rpath->src_addr)) && (rreq->b_id == rpath->b_id))
+       {
+	 if(rpath->hop_count < rreq->hop_count)
+	   return TRUE;
+	 else
+	   return FALSE;
+       }
+   }
+}
 
 int
 dont_have_rreq(struct rreq_reverse_path * rpath, struct rreq* rreq)
@@ -435,6 +537,24 @@ dont_have_rreq(struct rreq_reverse_path * rpath, struct rreq* rreq)
 
   return TRUE;
 }
+
+
+void
+remove_rpath(struct rreq_reverse_path * rpaths,  struct rreq * rreq)
+{
+  int i;
+  for(i = 0; i < ROUTING_TABLE_SIZE; i++)
+    {
+      if(rpaths->b_id == rreq->b_id && !strcmp(rpaths_srcaddr, rreq->src_addr))
+	{
+	  memset(rpaths, 0, sizeof(struct rreq_reverse_path));
+	  rpaths->b_id = -1
+	  return;
+	}
+      rpaths++;
+    }
+}
+
 
 void
 add_rpath(struct rreq_reverse_path * rpaths, struct sockaddr_ll * sock_rreq, struct rreq * rreq)
@@ -456,24 +576,21 @@ add_rpath(struct rreq_reverse_path * rpaths, struct sockaddr_ll * sock_rreq, str
 	  print_eth_addr(rpaths->prev_hop);
 	  rpaths->in_interface_index = sock_rreq->sll_ifindex;
 	  printf("Reverse Path index: %d \n", rpaths->in_interface_index);
+	  rpaths->hop_count = sock_rreq->hop_count;
+	  printf("Rpath hop count: %d \n", rpaths->hop_count);
 	  break;
 	}
       rpaths++;
     }
 }
 
-
-/*
-  
-  Remove reverse path when RREP is received
-  
-*/
-void
-remove_rpath()
+ 
+void 
+delete_stale_entry(RT* entry)
 {
-
-  ;
-
+  memset(entry->next_hop, 0, 6);
+  entry->out_interface_index = -1;
+  entry->hop_count = -1;
 }
 
 RT* 
@@ -491,6 +608,19 @@ get_route_entry(RT* vm, char *dest_addr )
     return NULL;
 }
 
+int
+have_route(RT* entry)
+{
+  if(entry)
+    {
+      if(entry->next_hop != 0)
+	return TRUE;
+    }
+
+  return FALSE:
+      
+}
+
 struct rreq_reverse_path *
 get_rpath(struct rreq_reverse_path * r_paths, char * dest_addr)
 {
@@ -502,9 +632,25 @@ get_rpath(struct rreq_reverse_path * r_paths, char * dest_addr)
 
       r_paths++;
     }
-
+  
   printf("No reverse path. \n");
   return NULL;
+}
+ 
+void
+improve_route(RT* vm, struct rreq* rreq)
+{
+  int i;
+  for(i = 0; i < ROUTING_TABLE_SIZE; i++)
+    {
+      if(!strcmp(vm->dest_addr, rreq->src_addr))
+	{
+	  if(vm->hop_count < rreq->hop_count)
+	    return TRUE;
+	  else
+	    return FALSE;
+	}
+    }
 }
 
 /*
@@ -538,18 +684,18 @@ void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rrep
 
   RT* entry; 
   entry = get_route_entry(vm, rreq->src_addr);
-	if(entry->hop_count > rreq->hop_count){
-
-	printf("Got entry of routing entry to be updated\n");
-  	//set forward address
-  	memcpy(entry->next_hop, sock_rreq->sll_addr, ETH_ALEN);
+  if(entry->hop_count > rreq->hop_count){
+    
+    printf("Got entry of routing entry to be updated\n");
+    //set forward address
+    memcpy(entry->next_hop, sock_rreq->sll_addr, ETH_ALEN);
   	//set interface index
-  	entry->out_interface_index = sock_rreq->sll_ifindex;
-  	//set hop count
-  	entry->hop_count = rreq->hop_count;
-
+    entry->out_interface_index = sock_rreq->sll_ifindex;
+    //set hop count
+    entry->hop_count = rreq->hop_count;
+    
   }
-
+  
   setTimeStamp(entry);
 
 }
@@ -660,13 +806,7 @@ void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf
   //send_buf data
   data = send_buf + 14;
   //set rrep source addr to rreq source addr
-  printf("Before memcpy Write source rrep src_addr, rreq: %c \n", rreq->contents.odr_rreq.src_addr[0]);
-  printf("Before memcpy Write source rrep src_addr, rreq: %c \n", rreq->contents.odr_rreq.src_addr[1]);
-  printf("Before memcpy Write source rrep src_addr, rreq: %c \n", rreq->contents.odr_rreq.src_addr[2]);
   memcpy(rrep->contents.odr_rrep.src_addr, rreq->contents.odr_rreq.src_addr, 16);
-  printf("Write source rrep src_addr, rrep: %s \n", rrep->contents.odr_rrep.src_addr);
-  printf("Write source rrep src_addr, rreq: %s \n", rreq->contents.odr_rreq.src_addr);
-  
 
   //set rrep dest addr to rreq dest addr
   memcpy(rrep->contents.odr_rrep.dest_addr, rreq->contents.odr_rreq.dest_addr, 16);
@@ -817,7 +957,7 @@ int isFloodingRequired(RT *vm, struct timespec stale, struct rreq *req){
 	findOwnIP(own_ip);
 	
     // Got to test this first condition
-	if ( strcmp(own_ip, (req->dest_addr)) == 0 )
+	if (strcmp(own_ip, (req->dest_addr)) == 0 )
 	  {
 	    printf("Reached destination! \n");
 	    return FALSE;
@@ -839,7 +979,10 @@ int isFloodingRequired(RT *vm, struct timespec stale, struct rreq *req){
 
 }
 
-/* Initialize Routing Table for all nodes */
+/* 
+   Initialize Routing Table for all nodes 
+*/
+
 void init_RoutingTable(RT *vm){
 
 	int i;
