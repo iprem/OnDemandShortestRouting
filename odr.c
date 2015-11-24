@@ -243,25 +243,30 @@ int main(int argc, char **argv)
 	  vm_entry_iter = get_route_entry(vm, msg_send_ptr->dest_ip);
 	  if(have_route(vm_entry_iter))
 	    {
+	      printf("ODR: has a route \n.");
 	      if(isRoutingTableStale(vm_entry_iter, staleness_param))
 		{
+		  printf("Route is stale \n.");
 		  delete_stale_entry(vm_entry_iter);
 		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag);
 		  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 		}
 	      else if(msg_send_ptr -> flag == DISCOVER)
 		{
+		  printf("ODR: Discover bit is set \n");
 		  delete_stale_entry(vm_entry_iter);
 		  write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag);
 		  flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 		}
 	      else
 		{
+		  printf("ODR: has route and can send");
 		  send_application_payload = 1;
  		}
 	    }
 	  else if(!have_route(vm_entry_iter))
 	    {
+	      printf("ODR: No route");
 	      write_source_rreq(send_buf, &pk_rreq, msg_send_ptr->dest_ip, msg_send_ptr->flag);
 	      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
 	    }	  

@@ -6,6 +6,19 @@
 
 void init_sockaddr_un(struct sockaddr_un *addr, char * path);
 
+const char ipVM[10][16] = {
+							"130.245.156.21",
+							"130.245.156.22",
+							"130.245.156.23",
+							"130.245.156.24",
+							"130.245.156.25",
+							"130.245.156.26",
+							"130.245.156.27",
+							"130.245.156.28",
+							"130.245.156.29",
+							"130.245.156.20"	};
+
+
 int main(int argc, char **argv)
 {
   int fd = 0,  err = 0, sockfd = 0, one = 1;
@@ -43,7 +56,7 @@ int main(int argc, char **argv)
   Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
 
   msg_send(sockfd, "130.245.156.20", 1, "1", 0);
-
+  client_debug_send(ipVM, "130.245.156.20");
 
   /*
     CLOSE PROGRAM
@@ -58,6 +71,28 @@ int main(int argc, char **argv)
   exit(0);
 }
 
+void
+client_debug_send(char** map, char * dest_ip)
+{
+  char own_ip[16];
+  int i, vm_source = 0 , vm_dest = 0;
+  findOwnIP(own_ip);
 
+  for(i = 0; i < 10; i++)
+    {
+      if(!strcmp(dest_ip, map[i]))
+	vm_dest = i;
+      if(!strcmp(own_ip, map[i]))
+	vm_source = i;
+    }
+
+  if(vm_dest && vm_src)
+    {
+      printf("Client at node vm:%d sending request to client at node vm%d \n", vm_src, vm_dest);
+    }
+  else
+    printf("Could not find client or dest in map \n");
+  
+}
 
 
