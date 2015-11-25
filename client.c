@@ -19,6 +19,8 @@ const char ipVM[10][16] = {
 							"130.245.156.20"	};
 
 
+void client_debug_send(char* map, char * dest_ip);
+
 int main(int argc, char **argv)
 {
   int fd = 0,  err = 0, sockfd = 0, one = 1;
@@ -47,15 +49,14 @@ int main(int argc, char **argv)
   sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
   Setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 
-  //init_sockaddr_un(&cliaddr, ds_cli_path);
-  init_sockaddr_un(&cliaddr, tempnam("./", "ud_"));
-  printf("Filename: %s", cliaddr.sun_path);
-  Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
+  //init_sockaddr_un(&cliaddr, tempnam("./", "ud_"));
+  //printf("Filename: %s", cliaddr.sun_path);
+  //Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
 
   init_sockaddr_un(&ds_odr, ds_odr_path);
-  Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
+  //Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
 
-  msg_send(sockfd, "130.245.156.20", 1, "1", 0);
+  //msg_send(sockfd, "130.245.156.20", 1, "1", 0);
   client_debug_send(ipVM, "130.245.156.20");
 
   /*
@@ -72,23 +73,34 @@ int main(int argc, char **argv)
 }
 
 void
-client_debug_send(char** map, char * dest_ip)
+client_debug_send(char* map, char * dest_ip)
 {
   char own_ip[16];
-  int i, vm_source = 0 , vm_dest = 0;
+  int i, vm_src = 0 , vm_dest = 0;
   findOwnIP(own_ip);
 
-  for(i = 0; i < 10; i++)
+  //vm1 through vm10
+  for(i = 1; i < 11; i++)
     {
-      if(!strcmp(dest_ip, map[i]))
-	vm_dest = i;
-      if(!strcmp(own_ip, map[i]))
-	vm_source = i;
+      if(!strcmp(dest_ip, map))
+	{
+	  vm_dest = i;
+	  printf("vm dest: %d \n", vm_dest);
+	}
+      
+      if(!strcmp(own_ip, map))
+	{
+	  vm_src = i;
+	  printf("vm dest: %d \n", vm_src);
+	}
+
+      map = map+16;
+      
     }
 
   if(vm_dest && vm_src)
     {
-      printf("Client at node vm:%d sending request to client at node vm%d \n", vm_src, vm_dest);
+      printf("Client at node vm:%d sending request to client at node vm: %d \n", vm_src, vm_dest);
     }
   else
     printf("Could not find client or dest in map \n");
