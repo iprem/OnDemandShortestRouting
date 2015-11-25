@@ -49,14 +49,14 @@ int main(int argc, char **argv)
   sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
   Setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 
-  //init_sockaddr_un(&cliaddr, tempnam("./", "ud_"));
-  //printf("Filename: %s", cliaddr.sun_path);
-  //Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
+  init_sockaddr_un(&cliaddr, tempnam("./", "ud_"));
+  printf("Filename: %s", cliaddr.sun_path);
+  Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
 
   init_sockaddr_un(&ds_odr, ds_odr_path);
-  //Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
+  Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
 
-  //msg_send(sockfd, "130.245.156.20", 1, "1", 0);
+  msg_send(sockfd, "130.245.156.20", 1, "1", 0);
   client_debug_send(ipVM, "130.245.156.20");
 
   /*

@@ -8,9 +8,12 @@ void msg_send(int sockfd, char* dest_ip, int dest_port, char* msg, int flag)
   char buff[ETH_FRAME_LEN];
   
   memset(buff, 0, ETH_FRAME_LEN);
+  memset(&formatted_msg, 0, sizeof(struct msg_send_struct));
+
   memcpy(formatted_msg.dest_ip, dest_ip, 16);
   formatted_msg.dest_port = dest_port;
   formatted_msg.flag = flag;
+  memcpy(&formatted_msg.msg, msg, 2);
   
   memcpy(buff, &formatted_msg, sizeof(struct msg_send_struct));
   
