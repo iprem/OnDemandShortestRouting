@@ -11,6 +11,7 @@ void msg_send(int sockfd, char* dest_ip, int dest_port, char* msg, int flag)
   memset(&formatted_msg, 0, sizeof(struct msg_send_struct));
 
   memcpy(formatted_msg.dest_ip, dest_ip, 16);
+  printf("dest port in msg_send: %d \n", dest_port);
   formatted_msg.dest_port = dest_port;
   formatted_msg.flag = flag;
   memcpy(&formatted_msg.msg, msg, 2);

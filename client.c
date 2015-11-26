@@ -21,6 +21,9 @@ const char ipVM[10][16] = {
 
 void client_debug_send(char* map, char * dest_ip);
 
+#define CLIENT_SUNPATH "/home/mliuzzi/ud_agThkc"
+
+
 int main(int argc, char **argv)
 {
   int fd = 0,  err = 0, sockfd = 0, one = 1;
@@ -31,8 +34,9 @@ int main(int argc, char **argv)
   char *ds_odr_path = "/home/mliuzzi/un_odr_path1";
   // has newline
   int vm_choice;
-	char ip[16];
+  char ip[16];
   struct sockaddr_un cliaddr, ds_odr;
+  char msg_buf[513];
 
   /*
   fd = mkstemp(ds_cli_path);
@@ -57,7 +61,7 @@ int main(int argc, char **argv)
     sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
     Setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
     
-    init_sockaddr_un(&cliaddr, tempnam("./", "ud_"));
+    init_sockaddr_un(&cliaddr, CLIENT_SUNPATH);
     printf("Filename: %s", cliaddr.sun_path);
     Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
     
@@ -67,6 +71,9 @@ int main(int argc, char **argv)
     sprintf(ip, "130.245.156.%d", (vm_choice%10)+20);
     
     msg_send(sockfd, ip, 2039, "1", flag);
+    char newbuf[16];
+    int newport;
+    msg_recv(sockfd, msg_buf, newbuf, &newport);
     client_debug_send(ipVM, ip);
 
   /*

@@ -10,7 +10,7 @@
 #include <net/ethernet.h>
 
 
-#define SUN_PATH "2038"	/*Define sun_path here*/
+#define SUN_PATH "/home/mliuzzi/server_addr"	/*Define sun_path here*/
 #define MSG_SIZE ETH_FRAME_LEN
 
 /* Canonical IP Address of all the VMs of interface eth0 */
@@ -32,20 +32,22 @@ char ipVM[10][16] = {
 void findServerIP(char *);				
 
 int main(int argc, char **argv){
-
-	struct sockaddr_un servaddr;
-	int sockfd, port;
-	time_t ticks;
-	char buff[ETH_FRAME_LEN], msg[ETH_FRAME_LEN], client_ip[16], server_ip[16], server_host[16], client_host[16];
-
+  struct sockaddr_un ds_odr;
+  struct sockaddr_un servaddr;
+  int sockfd, port;
+  time_t ticks;
+  char buff[ETH_FRAME_LEN], msg[ETH_FRAME_LEN], client_ip[16], server_ip[16], server_host[16], client_host[16];
+  char *ds_odr_path = "/home/mliuzzi/un_odr_path1";
 	sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
 	
 	unlink(SUN_PATH);
 
 	bzero(&servaddr, sizeof(servaddr));
 	init_sockaddr_un(&servaddr, SUN_PATH);
+	init_sockaddr_un(&ds_odr, ds_odr_path);
 	
 	Bind(sockfd, (SA *)&servaddr, sizeof(servaddr));
+	Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
 	
 	findServerIP(server_ip);
 	server_ip[strlen(server_ip)] = 0;
@@ -58,20 +60,20 @@ int main(int argc, char **argv){
 
 	while(1){
 		
-		/*Remove comments to receive message and send message*/
-	  
 	  struct msg_send_struct* server_msg;
 	  server_msg = msg;
+
+	  printf("Before msg recv...\n");
+	  msg_recv(sockfd, msg, client_ip, &port);	
+	  ticks = time(NULL);
+	  memset(msg, 0, 512);
+	  snprintf(msg, 512, "%.24s\r\n",ctime(&ticks));
+	  printf("Current time: %s\n", msg);
+	  printf("\nServer at node %s responding to request from %s\n", server_host, client_host);
+	  port = 666;
+	  msg_send(sockfd, client_ip, port, msg, 0);
+	  break;
 	  
-		msg_recv(sockfd, msg, client_ip, &port);	
-		ticks = time(NULL);
-		memset(server_msg->msg, 0, 512);
-		snprintf(server_msg->msg, 512, "%.24s\r\n",ctime(&ticks));
-		printf("Current time: %s\n",buff);
-		printf("\nServer at node %s responding to request from %s\n", server_host, client_host);
-		msg_send(sockfd, client_ip, port, msg, 0);
-		break;
-		
 	}
 	
 	unlink(SUN_PATH);
