@@ -18,6 +18,9 @@
 #define INTERMEDIATE 0
 #define penter() printf("Enter"); printf ("__FUNCTION__ = %s\n", __FUNCTION__);
 #define pexit()  printf("Return"); printf ("__FUNCTION__ = %s\n", __FUNCTION__);
+#define TIME_TO_LIVE 120		/*In seconds*/
+#define PORT 15173
+
 
 const char ipVM[10][16] = {
 							"130.245.156.21",
@@ -32,6 +35,17 @@ const char ipVM[10][16] = {
 							"130.245.156.20"	};
 
 
+struct port_table{
+
+	int port;
+	char sun_path[20];
+	struct timespec time_to_live;
+	struct port_table* next;
+
+};
+
+static struct port_table table;
+static int port = PORT;
 
 struct rreq_reverse_path
 {
@@ -150,6 +164,8 @@ void remove_rpath(struct rreq_reverse_path * rpaths,  struct rreq * rreq);
 int reconfirm_route(RT* vm, struct rreq* rreq, struct timespec staleness_param);
 int new_neighbor_same_hops(struct rreq_reverse_path * r_paths, struct rreq* rreq, struct sockaddr_ll* sock_rreq);
 int reached_src(struct rrep * rrep);
+int add(char *sunpath);
+int check_table(struct sockaddr_un *cliaddr);
 
 
 int main(int argc, char **argv)
@@ -157,6 +173,7 @@ int main(int argc, char **argv)
 
   int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0, discover = 0, sent_rrep = 0, send_application_payload = 0;
   fd_set rset;
+	int n, flag, addrlen;
   socklen_t len = sizeof(struct sockaddr_ll);
   //char *ds_odr_path = "/home/mliuzzi/odr_path";
   //char *ds_odr_path = "/users/mliuzzi/cse533/un_odr_path";
@@ -172,6 +189,7 @@ int main(int argc, char **argv)
   char send_buf[ETH_FRAME_LEN];
   char own_ip[16];
   char *data = recv_buf + 14;
+	char recvmsg[MAXLINE], dest_addr[16], message[20];
 
 
   /* Initialize structures to zero */
@@ -196,6 +214,22 @@ int main(int argc, char **argv)
   /*
     Receive a messsage from local socket
   */
+	Recvfrom(ud_sockfd, recvmsg, sizeof(recvmsg), 0, (SA *)&cliaddr, &addrlen);
+
+	/* Unpack the received message */
+	sscanf(recvmsg, "%s %d %d %s", dest_addr, &dest_port, &flag, message);
+
+	dest_addr[strlen(dest_addr)]	= 0;	
+	message[strlen(message)] = 0;
+	printf("IP Addr of requested destination: %s\n", dest_addr);
+	printf("Port Number: %d\n", dest_port);
+	printf("Msg: %s\n", message);
+
+	if( check_table(&cliaddr)) 
+		printf("Client added to the table\n");
+	
+	else
+		printf("Timestamp updated for the client in the table\n");
 
 
   //dg_echo(ud_sockfd, (SA*) &cliaddr, sizeof(cliaddr));
@@ -1201,3 +1235,119 @@ void init_RoutingEntry( RT *vm_node ){
 
 }
 
+
+/*Check table for sunpath name of client*/
+int check_table(struct sockaddr_un *cliaddr){
+	
+	char sunpath[108];
+	int flag = 0;
+	strcpy(sunpath,cliaddr->sun_path);
+	struct port_table *p = &table;
+
+	struct timespec curtime;
+	
+	if ( clock_gettime(CLOCK_REALTIME, &curtime) == -1 ){
+		printf("Error: Unable to get current time\n");
+	}
+
+	while(p!= NULL){
+
+		if(!(strcmp(p->sun_path,sunpath))){
+
+			flag = 1;
+			break;
+
+		}
+		
+		p = p->next;
+
+	}
+	
+	if( flag == 0 ){		//Sunpath doesn't exist in table
+	
+		if (add(sunpath));
+			return TRUE;
+
+	}
+	
+	else 
+		
+		p->time_to_live = curtime;
+
+	return FALSE;
+
+}
+
+/*Add sunpath to table */
+int add(char *sunpath){
+
+	struct port_table *p = &table, *new_entry=NULL, *prev=NULL;
+
+	struct timespec curtime;
+	int flag = 0;
+	
+	if ( clock_gettime(CLOCK_REALTIME, &curtime) == -1 ){
+		printf("Error: Unable to get current time");
+	}
+	
+	new_entry->port = port++;
+	strcpy(new_entry->sun_path,sunpath);
+	new_entry->time_to_live = curtime;
+
+	if(p == NULL){
+	
+		p = new_entry;	
+		return TRUE;
+
+	}
+	
+	else {
+		while(p != NULL){
+		
+			/* Check if any entry has expired */
+			if((curtime.tv_sec - p->time_to_live.tv_sec) > TIME_TO_LIVE ){
+
+					flag = 1;	
+					break;
+			}
+
+			prev = p;
+			p = p->next;
+
+		}
+
+		/* Get rid of the timeout entry and add new one at its place */	
+		if((flag == 1)){
+
+			prev->next = new_entry;
+			new_entry->next = p->next;
+			return FALSE;
+
+		}
+		
+		else{ 
+				
+				p->next = new_entry;
+				return TRUE;
+		}
+				
+	}
+	
+}
+
+char * findSunpath(int port){
+
+	struct port_table *p = &table;
+	
+	while(p != NULL){
+	
+		if(port == p->port)
+			return p->sun_path;
+
+		p = p->next;
+	
+	}
+
+	return NULL;
+
+}
