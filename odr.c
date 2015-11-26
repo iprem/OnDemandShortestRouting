@@ -161,7 +161,7 @@ void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf
 void write_source_rreq(char *buffer, struct sockaddr_ll* sockaddr_rreq, char * dest_addr, int discover);
 void write_forward_rrep(char * send_buf, char * recv_buf, struct sockaddr_ll *pk_rreq , struct rreq_reverse_path * r_paths);
 void write_forward_rreq( char * send_buf, char * recv_buf, struct sockaddr_ll* sockaddr_rreq, int rrep_sent);
-void write_forward_app_payload(char * send_buf, char * recv_buf, struct sockaddr_ll* sockaddr_payload, RT* vm);
+void write_forward_app_payload(char * send_buf, char * recv_buf, struct sockaddr_ll* sockaddr_payload, RT* vm, int source);
 void update_route_table_rrep(RT* , struct sockaddr_ll * sock_rrep,  struct rrep* rrep);
 void update_route_table_rreq(RT* , struct sockaddr_ll * sock_rreq,  struct rreq* rreq);
 void update_route_table_payload(RT* vm, struct sockaddr_ll* sock_rreq,  struct app_payload* payload);
@@ -187,7 +187,7 @@ void display(RT *vm);
 int main(int argc, char **argv)
 {
 
-  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0, discover= 0, sent_rrep = 0, send_application_payload = 0, client_port = 0;
+  int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0, discover= 0, sent_rrep = 0, send_application_payload = 0, client_port = 0, source;
   fd_set rset;
 	int n, flag;
   socklen_t len = sizeof(struct sockaddr_ll), addrlen = sizeof(struct sockaddr_un);
@@ -290,6 +290,7 @@ int main(int argc, char **argv)
 		  printf("ODR: has route and can send");
 		  convert_msg_to_payload(recv_buf, send_buf, client_port);
 		  send_application_payload = 1;
+		  source = 1;
  		}
 	    }
 	  else if(!have_route(vm_entry_iter))
@@ -308,6 +309,8 @@ int main(int argc, char **argv)
 
 	  if(recv_odr_msg->type == APP_PAYLOAD) 
 	    {
+
+	      printf("Received app payload msg \n");
 	      char own_ip[16];
 	      findOwnIP(own_ip);
 
@@ -411,8 +414,12 @@ int main(int argc, char **argv)
 		      printf("No route \n");
 		      add_rpath(r_paths, &pk_rreq, &(recv_odr_msg->contents.odr_rreq));
 		      memset(&pk_rreq, 0, sizeof(struct sockaddr_ll));
-		      write_forward_rreq(send_buf, recv_buf,  &pk_rreq, recv_odr_msg->contents.odr_rreq.rrep_flag);
+		      printf("before write forward rreq...\n");
+		      //write_forward_rreq(send_buf, recv_buf,  &pk_rreq, recv_odr_msg->contents.odr_rreq.rrep_flag);
+		      write_forward_rreq(send_buf, recv_buf,  &pk_rreq, 0);
+		      printf("write forward rreq...\n");
 		      flood_rreqs(pk_sockfd, send_buf, &pk_rreq);
+		      printf("flood...\n");
 		    }
 		}
 	      /*
@@ -435,6 +442,7 @@ int main(int argc, char **argv)
 	      //update_route_table_rreq only needs to be done if improve the route
 	      //so do it here independent of all sending
 	      //improve route covers case that there is no route
+	      printf("Before improve route...\n");
 	      if(improve_route(vm, &(recv_odr_msg->contents.odr_rreq)))
 		{
 		  printf("Improved route discovered...\n");
@@ -500,13 +508,14 @@ int main(int argc, char **argv)
 	  if(send_application_payload)
 	    {
 	      printf("Sending application payload...\n");
-	      write_forward_app_payload(send_buf,  recv_buf, &pk_rreq, vm);
+	      write_forward_app_payload(send_buf,  recv_buf, &pk_rreq, vm, source);
 	      Sendto(pk_sockfd, send_buf, ETH_FRAME_LEN, 0, (SA*) &pk_rreq, sizeof(struct sockaddr_ll));
 	    }
 	}
       
       //reset everything
       send_application_payload = 0;
+      source = 0;
       sent_rrep = 0;
       memset(send_buf, 0, ETH_FRAME_LEN);
       memset(recv_buf, 0, ETH_FRAME_LEN);
@@ -518,15 +527,21 @@ int main(int argc, char **argv)
 
 }
 
-void write_forward_app_payload(char * send_buf, char * recv_buf, struct sockaddr_ll* sockaddr_payload, RT* vm)
+void write_forward_app_payload(char * send_buf, char * recv_buf, struct sockaddr_ll* sockaddr_payload, RT* vm, int source)
 {
+  struct hwa_info *hwa, *hwahead;
   struct odr_message* payload = NULL;
+  struct ethhdr* send_hdr = send_buf;
   RT * entry = NULL;
   memset(send_buf, 0, ETH_FRAME_LEN);
   memcpy(send_buf, recv_buf, ETH_FRAME_LEN);
 
   payload = send_buf + 14;
-  payload->contents.odr_payload.hop_count++;
+  payload->type = APP_PAYLOAD;
+  if (source)
+      payload->contents.odr_payload.hop_count++;
+  else
+    payload->contents.odr_payload.hop_count++;
   
   entry = get_route_entry(vm, payload->contents.odr_payload.dest_addr);
 
@@ -534,6 +549,21 @@ void write_forward_app_payload(char * send_buf, char * recv_buf, struct sockaddr
   sockaddr_payload->sll_halen = ETH_ALEN;
   memcpy(sockaddr_payload->sll_addr, entry->next_hop, 6);
   sockaddr_payload->sll_ifindex = entry->out_interface_index;
+
+  //find source addr that matches received index
+  for (hwahead = hwa = Get_hw_addrs(); hwa != NULL; hwa = hwa->hwa_next)
+    {
+      if (hwa->if_index == sockaddr_payload->sll_ifindex)
+	{
+	  memcpy(send_hdr->h_source, hwa->if_haddr, ETH_ALEN);
+	}
+    } 
+
+
+  memcpy(send_hdr->h_dest, entry->next_hop, 6);
+  send_hdr->h_proto = htons(PROT_MAGIC);
+
+  free_hwa_info(hwahead);  
 
 }
 
@@ -767,6 +797,8 @@ add_rpath(struct rreq_reverse_path * rpaths, struct sockaddr_ll * sock_rreq, str
 	}
       rpaths++;
     }
+
+  pexit();
 }
 
  
@@ -1118,7 +1150,7 @@ void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf
   
   memcpy(data, rrep, sizeof(struct odr_message));
 	
-	free_hwa_info(hwahead);  
+  
 
 }
 
@@ -1180,6 +1212,7 @@ void write_source_rreq(char *buffer, struct sockaddr_ll* sockaddr_rreq, char * d
 
 void write_forward_rreq( char * send_buf, char * recv_buf, struct sockaddr_ll* sockaddr_rreq, int rrep_sent)
 {
+  penter();
 
   struct odr_message *forward_odr_msg_rreq;
 
@@ -1203,6 +1236,7 @@ void write_forward_rreq( char * send_buf, char * recv_buf, struct sockaddr_ll* s
   sockaddr_rreq->sll_addr[6] = 0x00;
   sockaddr_rreq->sll_addr[7] = 0x00;
 
+  pexit();
 }
 
 
@@ -1419,8 +1453,9 @@ char * findSunpath(int port){
 void display(RT *vm){
 
 	printf("Routing entry for IP: %s\n", vm->dest_addr);
-	printf("Next hop: %s\n",vm->next_hop);
-	printf("Out interface Index: %d", vm->out_interface_index);
-	printf("Hop count: %d", vm->hop_count);
+	printf("Next hop: ");
+	print_eth_addr(vm->next_hop);
+	printf("Out interface Index: %d \n", vm->out_interface_index);
+	printf("Hop count: %d \n", vm->hop_count);
 
 }
