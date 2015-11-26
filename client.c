@@ -28,9 +28,10 @@ int main(int argc, char **argv)
   //char ds_cli_path[] = "client_sock_XXXXXX";
   //char* ds_odr_path = "/home/mliuzzi/odr_path";
   // Paths for testing are uncommented
-  char *ds_odr_path = "/home/mliuzzi/un_odr_path";
+  char *ds_odr_path = "/home/mliuzzi/un_odr_path1";
   // has newline
-  char vm_choice[10] = "";
+  int vm_choice;
+	char ip[16];
   struct sockaddr_un cliaddr, ds_odr;
 
   /*
@@ -41,35 +42,45 @@ int main(int argc, char **argv)
       exit(1);
     }
   */
-
-  printf("Enter server node now \n");
-  fgets(vm_choice, 10, stdin);
-  printf("You have chosen: %s", vm_choice);
-
-  sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
-  Setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-
-  init_sockaddr_un(&cliaddr, tempnam("./", "ud_"));
-  printf("Filename: %s", cliaddr.sun_path);
-  Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
-
-  init_sockaddr_un(&ds_odr, ds_odr_path);
-  Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
-
-  msg_send(sockfd, "130.245.156.22", 1, "1", 0);
-  client_debug_send(ipVM, "130.245.156.22");
+  int flag = 0;
+  
+  while (1){
+    printf("Enter server node now from 1 to 10 \n");
+    scanf("%d", &vm_choice);
+    printf("You have chosen: %d", vm_choice);
+    
+    if((vm_choice > 10) || (vm_choice < 1) ){
+      printf("Invalid choice of vm. Please try again\n");
+			continue;
+    }
+    
+    sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
+    Setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    
+    init_sockaddr_un(&cliaddr, tempnam("./", "ud_"));
+    printf("Filename: %s", cliaddr.sun_path);
+    Bind(sockfd, (SA *) &cliaddr, sizeof(cliaddr));
+    
+    init_sockaddr_un(&ds_odr, ds_odr_path);
+    Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
+    
+    sprintf(ip, "130.245.156.%d", (vm_choice%10)+20);
+    
+    msg_send(sockfd, ip, 2039, "1", flag);
+    client_debug_send(ipVM, ip);
 
   /*
     CLOSE PROGRAM
   */
 
   if ((err = close(fd)))
-      perror("Error: ");
-      
-
+    perror("Error: ");
+  
+  
   //unlink(ds_cli_path);  
   unlink(cliaddr.sun_path);  
   exit(0);
+  }
 }
 
 void
@@ -102,9 +113,9 @@ client_debug_send(char* map, char * dest_ip)
     {
       printf("Client at node vm:%d sending request to client at node vm: %d \n", vm_src, vm_dest);
     }
-  else
-    printf("Could not find client or dest in map \n");
   
-}
+	else
+    printf("Could not find client or dest in map \n");
 
+}
 
