@@ -20,6 +20,8 @@
 #define pexit()  printf("Return"); printf ("__FUNCTION__ = %s\n", __FUNCTION__);
 #define TIME_TO_LIVE 120		/*In seconds*/
 #define PORT 15173
+#define SERVER_PORT 2039
+#define SERVER_SUNPATH "/home/mliuzzi/server"
 
 
 const char ipVM[10][16] = {
@@ -38,13 +40,13 @@ const char ipVM[10][16] = {
 struct port_table{
 
 	int port;
-	char sun_path[20];
+	char sun_path[108];
 	struct timespec time_to_live;
-	struct port_table* next;
+	struct port_table *next;
 
 };
 
-static struct port_table table;
+static struct port_table *table;
 static int port = PORT;
 
 struct rreq_reverse_path
@@ -166,31 +168,32 @@ int new_neighbor_same_hops(struct routing_table * vm, struct rreq* rreq, struct 
 int reached_src(struct rrep * rrep);
 int add(char *sunpath);
 int check_table(struct sockaddr_un *cliaddr);
-
+char * findSunpath(int port);
+void display(RT *vm);
 
 int main(int argc, char **argv)
 {
 
   int ud_sockfd = 0, pk_sockfd = 0,  source_port = 0, dest_port = 0, source_flag = 0, discover = 0, sent_rrep = 0, send_application_payload = 0;
   fd_set rset;
-	int n, flag, addrlen;
-  socklen_t len = sizeof(struct sockaddr_ll);
+	int n, flag;
+  socklen_t len = sizeof(struct sockaddr_ll), addrlen = sizeof(struct sockaddr_un);
   //char *ds_odr_path = "/home/mliuzzi/odr_path";
   //char *ds_odr_path = "/users/mliuzzi/cse533/un_odr_path";
-  char *ds_odr_path = "/home/mliuzzi/un_odr_path";
+  char *ds_odr_path = "/home/mliuzzi/un_odr_path1";
   struct sockaddr_un ds_odr, cliaddr;
   struct sockaddr_ll pk_rreq;
   struct odr_message* recv_odr_msg;
   struct odr_message odr_msg_rrep;
   struct msg_send_struct* msg_send_ptr;
-  struct timespec staleness_param;
+  struct timespec staleness_param, curtime;
   RT* vm_entry_iter = NULL;
   char recv_buf[ETH_FRAME_LEN];
   char send_buf[ETH_FRAME_LEN];
   char own_ip[16];
   char *data = recv_buf + 14;
 	char recvmsg[MAXLINE], dest_addr[16], message[20];
-
+	
 
   /* Initialize structures to zero */
   memset(&odr_msg_rreq, 0, sizeof(struct odr_message));
@@ -202,10 +205,19 @@ int main(int argc, char **argv)
   init_sockaddr_un(&ds_odr, ds_odr_path);
   init_rpaths(r_paths);
   init_RoutingTable(vm);
+	table = (struct port_table *) malloc (sizeof(struct port_table));
+	table->port = SERVER_PORT;
+	strcpy(table->sun_path,SERVER_SUNPATH);
+	
+	if ( clock_gettime(CLOCK_REALTIME, &curtime) == -1 ){
+		printf("Error: Unable to get current time");
+	}
+	table->time_to_live = curtime;
+	table->next = NULL;
 
   //set our staleness parameter
   //staleness_param.tv_sec = strtol(argv[1], 0, 10);
-  staleness_param.tv_sec = 10;
+  staleness_param.tv_sec = 100;
 
 
   ud_sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
@@ -214,9 +226,8 @@ int main(int argc, char **argv)
   /*
     Receive a messsage from local socket
   */
-	Recvfrom(ud_sockfd, recvmsg, sizeof(recvmsg), 0, (SA *)&cliaddr, &addrlen);
+	/*Recvfrom(ud_sockfd, recvmsg, sizeof(recvmsg), 0, (SA *)&cliaddr, &addrlen);
 
-	/* Unpack the received message */
 	sscanf(recvmsg, "%s %d %d %s", dest_addr, &dest_port, &flag, message);
 
 	dest_addr[strlen(dest_addr)]	= 0;	
@@ -224,6 +235,8 @@ int main(int argc, char **argv)
 	printf("IP Addr of requested destination: %s\n", dest_addr);
 	printf("Port Number: %d\n", dest_port);
 	printf("Msg: %s\n", message);
+	cliaddr.sun_path[strlen(cliaddr.sun_path)] = 0;
+	printf("Sun path %s %d\n",cliaddr.sun_path, strlen(cliaddr.sun_path));
 
 	if( check_table(&cliaddr)) 
 		printf("Client added to the table\n");
@@ -231,7 +244,7 @@ int main(int argc, char **argv)
 	else
 		printf("Timestamp updated for the client in the table\n");
 
-
+	*/
   //dg_echo(ud_sockfd, (SA*) &cliaddr, sizeof(cliaddr));
 
 
@@ -275,7 +288,15 @@ int main(int argc, char **argv)
 	  printf("Received client msg \n");
 	  //XX
 	  //We need to know who it's from but for now just deal with one client
-	  recvfrom(ud_sockfd, recv_buf, ETH_FRAME_LEN, 0, NULL, NULL);
+	  recvfrom(ud_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *)&cliaddr , &addrlen);
+
+		cliaddr.sun_path[strlen(cliaddr.sun_path)] = 0;
+
+		if( check_table(&cliaddr)) 
+			printf("Client added to the table\n");
+		else
+			printf("Timestamp updated for the client in the table\n");
+
 	  msg_send_ptr = recv_buf;
 	  vm_entry_iter = get_route_entry(vm, msg_send_ptr->dest_ip);
 	  if(have_route(vm_entry_iter))
@@ -542,7 +563,8 @@ get_source_ethaddr(unsigned char *buf, int index)
 	}
       i++;
     }
-  
+
+  free_hwa_info(hwahead);
   return NULL;
 
 }
@@ -795,7 +817,9 @@ void update_route_table_rrep(RT* vm, struct sockaddr_ll* sock_rrep,  struct rrep
 {
 
   RT* entry; 
+	printf("Routing entry before modification\n");
   entry = get_route_entry(vm, rrep->dest_addr);
+	display(entry);
   //set forward address
   memcpy(entry->next_hop, sock_rrep->sll_addr, ETH_ALEN);
   //set interface index
@@ -804,6 +828,8 @@ void update_route_table_rrep(RT* vm, struct sockaddr_ll* sock_rrep,  struct rrep
   entry->hop_count = rrep->hop_count;
   
   setTimeStamp(entry);
+	printf("Routing entry after modification\n");
+	display(entry);
 
 }
 /*
@@ -815,8 +841,10 @@ void update_route_table_rrep(RT* vm, struct sockaddr_ll* sock_rrep,  struct rrep
 void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rreq* rreq)
 {
 
-  RT* entry; 
+  RT* entry;
+	printf("Routing entry before modification\n");
   entry = get_route_entry(vm, rreq->src_addr);
+	display(entry);
   if(entry->hop_count > rreq->hop_count || entry->hop_count == -1)
     {
       //set forward address
@@ -830,8 +858,9 @@ void update_route_table_rreq(RT* vm, struct sockaddr_ll* sock_rreq,  struct rreq
 
       setTimeStamp(entry);
 
-
     }
+		printf("Routing entry after modification\n");
+		display(entry);
 }
 
 
@@ -890,6 +919,8 @@ void flood_rreqs(int fd, char * buffer, struct sockaddr_ll* sockaddr_rreq)
 	  Sendto(fd, buffer, ETH_FRAME_LEN, 0,(SA *) sockaddr_rreq, sizeof(struct sockaddr_ll));
 	}
     }
+	
+	free_hwa_info(hwahead);
 }
 
 
@@ -972,7 +1003,9 @@ void write_source_rrep(struct odr_message *rrep, char * recv_buf, char *send_buf
   send_hdr->h_proto = htons(PROT_MAGIC);
   
   memcpy(data, rrep, sizeof(struct odr_message));
-  
+	
+	free_hwa_info(hwahead);  
+
 }
 
 
@@ -1153,17 +1186,18 @@ int check_table(struct sockaddr_un *cliaddr){
 	
 	char sunpath[108];
 	int flag = 0;
+	
 	strcpy(sunpath,cliaddr->sun_path);
-	struct port_table *p = &table;
+	struct port_table *p = table;
 
 	struct timespec curtime;
-	
+		
 	if ( clock_gettime(CLOCK_REALTIME, &curtime) == -1 ){
 		printf("Error: Unable to get current time\n");
 	}
 
 	while(p!= NULL){
-
+		printf("Inside loop\n");
 		if(!(strcmp(p->sun_path,sunpath))){
 
 			flag = 1;
@@ -1174,10 +1208,10 @@ int check_table(struct sockaddr_un *cliaddr){
 		p = p->next;
 
 	}
-	
+	printf("Outside loop\n");
 	if( flag == 0 ){		//Sunpath doesn't exist in table
-	
-		if (add(sunpath));
+
+		if (add(sunpath))
 			return TRUE;
 
 	}
@@ -1193,7 +1227,9 @@ int check_table(struct sockaddr_un *cliaddr){
 /*Add sunpath to table */
 int add(char *sunpath){
 
-	struct port_table *p = &table, *new_entry=NULL, *prev=NULL;
+	struct port_table *p = table, *prev = table;
+	struct port_table *new_entry = (struct port_table *) malloc (sizeof(struct port_table));
+	new_entry->port = -1;
 
 	struct timespec curtime;
 	int flag = 0;
@@ -1201,7 +1237,7 @@ int add(char *sunpath){
 	if ( clock_gettime(CLOCK_REALTIME, &curtime) == -1 ){
 		printf("Error: Unable to get current time");
 	}
-	
+
 	new_entry->port = port++;
 	strcpy(new_entry->sun_path,sunpath);
 	new_entry->time_to_live = curtime;
@@ -1225,6 +1261,7 @@ int add(char *sunpath){
 
 			prev = p;
 			p = p->next;
+			printf("Inside loop\n");
 
 		}
 
@@ -1238,8 +1275,8 @@ int add(char *sunpath){
 		}
 		
 		else{ 
-				
-				p->next = new_entry;
+				p = new_entry;
+				new_entry->next = NULL;
 				return TRUE;
 		}
 				
@@ -1249,7 +1286,7 @@ int add(char *sunpath){
 
 char * findSunpath(int port){
 
-	struct port_table *p = &table;
+	struct port_table *p = table;
 	
 	while(p != NULL){
 	
@@ -1261,5 +1298,15 @@ char * findSunpath(int port){
 	}
 
 	return NULL;
+
+}
+
+/* Display routing entry */
+void display(RT *vm){
+
+	printf("Routing entry for IP: %s\n", vm->dest_addr);
+	printf("Next hop: %s\n",vm->next_hop);
+	printf("Out interface Index: %d", vm->out_interface_index);
+	printf("Hop count: %d", vm->hop_count);
 
 }
