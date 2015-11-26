@@ -18,7 +18,7 @@ struct msg_send_struct
 {
   char dest_ip[16];
   int dest_port;
-  char msg[10];
+  char msg[512];
   int flag;
 };
 
