@@ -218,15 +218,15 @@ int main(int argc, char **argv)
   init_sockaddr_un(&ds_odr, ds_odr_path);
   init_rpaths(r_paths);
   init_RoutingTable(vm);
-	table = (struct port_table *) malloc (sizeof(struct port_table));
-	table->port = SERVER_PORT;
-	strcpy(table->sun_path,SERVER_SUNPATH);
-	
-	if ( clock_gettime(CLOCK_REALTIME, &curtime) == -1 ){
-		printf("Error: Unable to get current time");
-	}
-	table->time_to_live = curtime;
-	table->next = NULL;
+  table = (struct port_table *) malloc (sizeof(struct port_table));
+  table->port = SERVER_PORT;
+  strcpy(table->sun_path,SERVER_SUNPATH);
+  
+  if ( clock_gettime(CLOCK_REALTIME, &curtime) == -1 ){
+    printf("Error: Unable to get current time");
+  }
+  table->time_to_live = curtime;
+  table->next = NULL;
 
   //set our staleness parameter
   //staleness_param.tv_sec = strtol(argv[1], 0, 10);
@@ -284,13 +284,13 @@ int main(int argc, char **argv)
 	  //We need to know who it's from but for now just deal with one client
 	  recvfrom(ud_sockfd, recv_buf, ETH_FRAME_LEN, 0, (SA *)&cliaddr , &addrlen);
 
-		cliaddr.sun_path[strlen(cliaddr.sun_path)] = 0;
-
-		if( check_table(&cliaddr)) 
-			printf("Client added to the table\n");
-		else
-			printf("Timestamp updated for the client in the table\n");
-
+	  cliaddr.sun_path[strlen(cliaddr.sun_path)] = 0;
+		
+	  if( check_table(&cliaddr)) 
+	    printf("Client added to the table\n");
+	  else
+	    printf("Timestamp updated for the client in the table\n");
+	  
 	  msg_send_ptr = recv_buf;
 	  vm_entry_iter = get_route_entry(vm, msg_send_ptr->dest_ip);
 	  if(have_route(vm_entry_iter))

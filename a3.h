@@ -10,7 +10,7 @@
 #define DISCOVER 1
 
 void msg_send(int sockfd, char* dest_ip, int dest_port, char* msg, int flag);
-void msg_recv(int sockfd, char* msg, char* source_ip, int* source_port);
+int msg_recv(int sockfd, char* msg, char* source_ip, int* source_port);
 void findHostName(char *ip, char *host);
 void findOwnIP(char * own_ip);
 

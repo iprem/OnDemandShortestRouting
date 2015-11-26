@@ -4,13 +4,13 @@
 #include "a3.h"
 #define TIMEOUT 3 /*in seconds*/
 
-extern static int pipefd[2];
+int pipefd[2];
 
-static void recvfrom_alarm(int signo);
+void recvfrom_alarm(int signo);
 
 int msg_recv(int sockfd, char* msg, char* source_ip, int* source_port)
 {
-	
+       
 	char buff[MAXLINE+1];
 	int bytes_read;
 	char ipaddr[16], message[20];
@@ -18,7 +18,7 @@ int msg_recv(int sockfd, char* msg, char* source_ip, int* source_port)
 	fd_set rset;
 
 	Pipe(pipefd);
-	maxfd = max(sockfd,pipfd[0]) + 1;
+	maxfd = max(sockfd,pipefd[0]) + 1;
 
 	FD_ZERO(&rset);
 	
@@ -26,8 +26,8 @@ int msg_recv(int sockfd, char* msg, char* source_ip, int* source_port)
 	
 	for(;;) {
 
-		FD_SET(pipefd[0],rset);
-		FD_SET(sockfd,rset);
+		FD_SET(pipefd[0], &rset);
+		FD_SET(sockfd, &rset);
 
 		if( (n = select(maxfd, &rset, NULL, NULL, NULL)) <0 ){
 			if(errno == EINTR)
@@ -39,24 +39,13 @@ int msg_recv(int sockfd, char* msg, char* source_ip, int* source_port)
 		if(FD_ISSET(sockfd, &rset)){
 
 			/* Read line */
-			bytes_read = Read(sockfd, buff, sizeof(buff));
+			bytes_read = Read(sockfd, msg, sizeof(buff));
 			
 			alarm(0);	/* Reset Alarm */
 	
 			if( bytes_read < 0 )
 				printf("msg_recv() error");
-	
-			/* Fragment line into sub-components based on spaces*/
-			sscanf(buff, "%s %d %s", ipaddr, &source_port, message);
 
-			ipaddr[strlen(ipaddr)]	= 0;	
-			printf("IP Addr: %s\n", ipaddr);
-			printf("Port Number: %d\n", source_port);
-			printf("Msg: %s\n", msg);
-
-			strcpy(ipaddr, source_ip);
-			message[strlen(message)] = 0;
-			strcpy(msg, message);
 			return bytes_read;
 
 		}
@@ -67,11 +56,12 @@ int msg_recv(int sockfd, char* msg, char* source_ip, int* source_port)
 			return -1;
 		}
 			
+	}
 }
 
-static void recvfrom_alarm(int signo){
+void recvfrom_alarm(int signo){
 	
-	Write(pipefd[1],"",1);	/*Write one null byte data to pipe*/
-	return;
-
+  Write(pipefd[1],"",1);	/*Write one null byte data to pipe*/
+  return;
+  
 }

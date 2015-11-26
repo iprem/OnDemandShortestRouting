@@ -4,18 +4,18 @@ LIBS = -lunp -lpthread -lrt
 CLEANFILES = client server odr odr_test odrt   *~ *.o ud_* 
 
 
-all:	client odr
+all:	client odr server
+
+server:
+	$(CC) $(CFLAGS) server server.c get_hw_addrs.c sockaddr_util.c send.c recv.c a3_utils.c $(LIBS)
 
 otest: odr odrt
 
 client : client.c get_hw_addrs.c sockaddr_util.c send.c a3_utils.c
-	$(CC) $(CFLAGS) client client.c get_hw_addrs.c sockaddr_util.c send.c a3_utils.c $(LIBS)
+	$(CC) $(CFLAGS) client client.c get_hw_addrs.c sockaddr_util.c send.c recv.c a3_utils.c $(LIBS)
 
 prhw: prhwaddrs.c get_hw_addrs.c
 	$(CC) $(CFLAGS) prhw prhwaddrs.c get_hw_addrs.c $(LIBS)
-
-unixdg : 
-	$(CC) $(CFLAGS) dg unixdgcli01.c  $(LIBS)
 
 odrt: odr_test.c get_hw_addrs.c
 	$(CC) $(CFLAGS) odrt odr_test.c get_hw_addrs.c $(LIBS)

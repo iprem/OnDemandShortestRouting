@@ -5,10 +5,13 @@
 #include "unp.h"
 #include "a3.h"
 #include "hw_addrs.h"
+#include <sys/socket.h>
+#include <netpacket/packet.h>
+#include <net/ethernet.h>
 
 
 #define SUN_PATH "2038"	/*Define sun_path here*/
-#define MSG_SIZE 20
+#define MSG_SIZE ETH_FRAME_LEN
 
 /* Canonical IP Address of all the VMs of interface eth0 */
 /*Not required as i am using Get_hw_addrs to find IP on eth0*/
@@ -33,7 +36,7 @@ int main(int argc, char **argv){
 	struct sockaddr_un servaddr;
 	int sockfd, port;
 	time_t ticks;
-	char buff[MSG_SIZE], msg[MSG_SIZE], client_ip[16], server_ip[16], server_host[16], client_host[16];
+	char buff[ETH_FRAME_LEN], msg[ETH_FRAME_LEN], client_ip[16], server_ip[16], server_host[16], client_host[16];
 
 	sockfd = Socket(AF_LOCAL, SOCK_DGRAM, 0);
 	
@@ -56,14 +59,17 @@ int main(int argc, char **argv){
 	while(1){
 		
 		/*Remove comments to receive message and send message*/
-
-		//msg_recv(sockfd, msg, client_ip, &port);	
-		//FindHostName(client_ip, client_host);
+	  
+	  struct msg_send_struct* server_msg;
+	  server_msg = msg;
+	  
+		msg_recv(sockfd, msg, client_ip, &port);	
 		ticks = time(NULL);
-		snprintf(buff, sizeof(buff), "%.24s\r\n",ctime(&ticks));
+		memset(server_msg->msg, 0, 512);
+		snprintf(server_msg->msg, 512, "%.24s\r\n",ctime(&ticks));
 		printf("Current time: %s\n",buff);
 		printf("\nServer at node %s responding to request from %s\n", server_host, client_host);
-		//msg_send(sockfd, client_ip, port, buff, 0);
+		msg_send(sockfd, client_ip, port, msg, 0);
 		break;
 		
 	}
