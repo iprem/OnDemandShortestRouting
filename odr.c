@@ -237,31 +237,6 @@ int main(int argc, char **argv)
   Bind(ud_sockfd, (SA*) &ds_odr, SUN_LEN(&ds_odr));
 
   /*
-    Receive a messsage from local socket
-  */
-	/*Recvfrom(ud_sockfd, recvmsg, sizeof(recvmsg), 0, (SA *)&cliaddr, &addrlen);
-
-	sscanf(recvmsg, "%s %d %d %s", dest_addr, &dest_port, &flag, message);
-
-	dest_addr[strlen(dest_addr)]	= 0;	
-	message[strlen(message)] = 0;
-	printf("IP Addr of requested destination: %s\n", dest_addr);
-	printf("Port Number: %d\n", dest_port);
-	printf("Msg: %s\n", message);
-	cliaddr.sun_path[strlen(cliaddr.sun_path)] = 0;
-	printf("Sun path %s %d\n",cliaddr.sun_path, strlen(cliaddr.sun_path));
-
-	if( check_table(&cliaddr)) 
-		printf("Client added to the table\n");
-	
-	else
-		printf("Timestamp updated for the client in the table\n");
-
-	*/
-
-
-
-  /*
     Create packet socket
   */
 
@@ -344,6 +319,7 @@ int main(int argc, char **argv)
 		{
 		  
 		  convert_payload_to_msg(recv_odr_msg, send_buf);
+		  printf("App payload reached destination...\n");
 		  Send(ud_sockfd, send_buf, ETH_FRAME_LEN, 0 );
 		  continue;
 		}
