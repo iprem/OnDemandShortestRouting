@@ -56,8 +56,8 @@ int main(int argc, char **argv)
   init_sockaddr_un(&ds_odr, ds_odr_path);
   Connect(sockfd, (SA *) & ds_odr, sizeof(struct sockaddr_un));
 
-  msg_send(sockfd, "130.245.156.22", 1, "1", 0);
-  client_debug_send(ipVM, "130.245.156.22");
+  msg_send(sockfd, "130.245.156.20", 1, "1", 0);
+  client_debug_send(ipVM, "130.245.156.20");
 
   /*
     CLOSE PROGRAM
